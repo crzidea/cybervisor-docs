@@ -1,0 +1,12 @@
+name = "cybervisor-docs"
+compatibility_date = "2025-04-01"
+
+[assets]
+directory = ".vitepress/dist"
+html_handling = "auto-trailing-slash"
+
+# Production route for docs.cybervisor.ai
+# Uncomment and configure after DNS and Cloudflare zone ownership are confirmed:
+# [[routes]]
+# pattern = "docs.cybervisor.ai/*"
+# zone_name = "cybervisor.ai"

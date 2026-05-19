@@ -1,0 +1,18 @@
+{
+  "name": "cybervisor-docs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Static documentation site for cybervisor, built with VitePress and deployed to Cloudflare Workers Static Assets",
+  "scripts": {
+    "sync": "node scripts/sync-docs.js",
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview",
+    "deploy": "npm run build && wrangler deploy",
+    "wrangler:dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.0",
+    "wrangler": "^4.0.0"
+  }
+}
