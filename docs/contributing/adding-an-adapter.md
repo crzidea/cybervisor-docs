@@ -42,7 +42,7 @@ Every adapter must provide:
 - `start(request)` returning a normalized running-process handle
 - `parse_output_line(line)` returning canonical event(s) for shared rendering
 - `preflight_requirements()` describing required binaries and env vars
-- `settings_path()`, `install_hook_settings()`, and `remove_hook_settings()` if `supports_hooks=True` and `requires_native_hook_settings()=True` (ACP adapters like Gemini, OpenCode, and Cursor return `requires_native_hook_settings()=False` and do not implement these methods)
+- `settings_path()`, `install_hook_settings()`, and `remove_hook_settings()` if `supports_hooks=True` and `requires_native_hook_settings()=True` (ACP adapters like Gemini and Cursor return `requires_native_hook_settings()=False`; OpenCode returns `requires_native_hook_settings()=False` and `uses_hook_listener()=False`; in-process SDK adapters like Antigravity return `requires_native_hook_settings()=False`, `uses_hook_listener()=False`, and `settings_path()` returns `None` — the SDK is a standard Cybervisor dependency, not an optional install)
 
 ## Canonical Event Model Contract
 
@@ -62,11 +62,11 @@ The canonical model, not Claude Code raw JSON, is the adapter boundary. Current 
 This means:
 
 - the Claude adapter converts Claude Code `stream-json` lines into canonical events
-- ACP adapters (Gemini, Codex, OpenCode, Cursor) convert ACP `session/update` notifications into the same canonical events
+- ACP adapters (Gemini, Codex, Cursor) convert ACP `session/update` notifications into the same canonical events; OpenCode converts serve HTTP events into canonical events; in-process SDK adapters (Antigravity) bridge SDK streaming callbacks to canonical events via a thread-safe queue
 - shared rendering keeps the user-facing stderr vocabulary stable across adapters
 
 For ACP adapters specifically, maintain the notification parser against captured real ACP session output. Do not assume notification shapes are identical across agents.
-Gemini, OpenCode, and Cursor share ACP permission and verifier evaluation helpers, but each keeps its own notification parser because real `session/update` payloads differ by agent.
+Gemini and Cursor share ACP permission and verifier evaluation helpers, but each keeps its own notification parser because real `session/update` payloads differ by agent. OpenCode uses serve-mode HTTP and has its own event parser.
 Tool-call notifications must resolve to the same canonical tool names and normalized argument keys as other ACP agents. Put agent-specific kind, title, content-type, and field-alias mappings in that adapter's own `tool_mapping.py`, and reuse the generic `cybervisor.adapters.acp.stream` helpers to apply them so stderr summaries stay uniform; do not hand-format `tool call:` lines in adapter code or fork the shared renderers for one agent.
 
 ## Hook Wiring Contract
@@ -75,7 +75,7 @@ Hook-capable adapters that use native settings patching (`requires_native_hook_s
 
 - `uv run cybervisor-agent-hook --config <absolute path to .cybervisor/hooks/hook_config.json>`
 
-Currently only the Claude adapter uses native settings patching. ACP adapters (Gemini, Codex, OpenCode, Cursor) have `requires_native_hook_settings()=False` and handle contract enforcement and verifier decisions via `evaluate_reply()` inline in the adapter turn loop, not through the hook listener subprocess.
+Currently only the Claude adapter uses native settings patching. ACP adapters (Gemini, Codex, Cursor) have `requires_native_hook_settings()=False` and handle contract enforcement and verifier decisions via `evaluate_reply()` inline in the adapter turn loop, not through the hook listener subprocess. OpenCode also has `requires_native_hook_settings()=False` and `uses_hook_listener()=False`, delegating evaluation to the shared `evaluate_acp_reply` function.
 
 Adapter-owned hook behavior for settings-patching adapters is limited to:
 
@@ -160,7 +160,7 @@ Before an adapter is considered complete:
 - verify adapter-owned raw-log conversion produces canonical events rather than final strings
 - confirm hook install/remove matches the tool settings structure without moving shared autonomy rules
 - confirm hook-capable adapters preserve the shared Unix-socket event schema and decision semantics
-- for ACP adapters, integrate `ACPReadOnlySnapshot` into the transport's turn loop (snapshot before first turn, validate/restore after each turn) so `read_only_paths` is enforced even though the agent never emits `session/request_permission` for file writes
+- for ACP adapters, integrate `ACPReadOnlySnapshot` into the transport's turn loop (snapshot before first turn, validate/restore after each turn) so `read_only_paths` is enforced even though the agent never emits `session/request_permission` for file writes; OpenCode uses native permission deny rules in `OPENCODE_CONFIG_CONTENT` instead of `ACPReadOnlySnapshot`; in-process SDK adapters (Antigravity) pass capabilities to the SDK config when supported and use `ACPReadOnlySnapshot` for post-hoc validation/restore after the agent run completes
 - run `uv run pytest`
 - run `uv run mypy --strict src/`
 - run `uv run ruff check src/`

@@ -10,6 +10,8 @@ If you are contributing to `cybervisor`:
 
 User-facing workflow or specification changes should be documented in tracked files under `docs/` and, when relevant, the README. Do not leave those changes only in local working directories such as `specs/` or `.cybervisor/artifacts/`, because they are not part of the committed project history.
 
+To preview or publish the browser documentation site, use the sibling `cybervisor-docs/` project in the workspace: run `npm run sync` there after editing files in this `docs/` directory, then `npm run dev` or `npm run build`. When you add or rename a doc page, update the VitePress sidebar in `cybervisor-docs/.vitepress/config.mjs`. See `cybervisor-docs/README.md` for deploy steps.
+
 ```bash
 uv sync
 uv run ruff check src/
@@ -80,12 +82,13 @@ src/cybervisor/        Core CLI package (split into focused subpackages)
   pipeline/            Pipeline execution (runner, _execution, _cleanup, _interrupt, _routing, artifacts, contract)
   server/              Daemon WebSocket server (daemon, _daemon_config, handlers, _task_exec, tasks, _cleanup, _path)
   core_hooks/          Hook runtime (runner, tool_use, _http, contracts, streaming, verifier, common)
-  adapters/            Agent adapter registry and tool-specific adapters (gemini, claude, codex, opencode, cursor, mock)
+  adapters/            Agent adapter registry and tool-specific adapters (gemini, claude, codex, opencode, cursor, antigravity, mock)
     codex/             Codex adapter (adapter, app_server, _app_helpers)
     gemini/            Gemini adapter (adapter, acp_transport, _acp_helpers, stream)
     claude/            Claude adapter (adapter)
-    opencode/          OpenCode adapter (adapter, acp_transport, _acp_helpers, stream)
+    opencode/          OpenCode adapter (adapter, serve_transport, serve_client, stream)
     cursor/            Cursor adapter (adapter, acp_transport, _acp_helpers, stream)
+    antigravity/       Antigravity adapter (adapter, _handle, _sdk_wrapper)
     mock/              Mock adapter (adapter)
   config/              Configuration package (_types, _parsing, _stage_parsing; re-exports through __init__)
   cli.py, client.py,   Thin backward-compatible re-exports

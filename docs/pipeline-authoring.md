@@ -151,7 +151,7 @@ Per-stage agent overrides live in `~/.cybervisor/config.yaml` (not in `cyberviso
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `stage_agents` | `dict[str, str]` | No | Top-level mapping of stage names to agent tool names. Overrides the agent tool for the named stage. Values must match a supported agent name (`claude`, `gemini`, `codex`, `opencode`, `cursor`, `mock`). |
+| `stage_agents` | `dict[str, str]` | No | Top-level mapping of stage names to agent tool names. Overrides the agent tool for the named stage. Values must match a supported agent name (`claude`, `gemini`, `codex`, `opencode`, `cursor`, `antigravity`, `mock`). |
 
 **Behavior:**
 - `stage_agents` is optional; absent means all stages use the global `agent_tool` default.
@@ -168,7 +168,7 @@ stage_agents:
   "Review Delivery Docs": gemini
 ```
 
-**Hook compatibility:** All supported adapters enforce contracts and read-only paths. Claude uses settings-file hooks with launch-time write blocking; Gemini uses `--approval-mode default` with post-hoc snapshots as a belt-and-suspenders backstop; OpenCode injects native permission rules via `OPENCODE_CONFIG_CONTENT` with post-hoc snapshots as a belt-and-suspenders backstop; Cursor writes native deny rules to `.cursor/cli.json` (restored after the session) with post-hoc snapshots as a belt-and-suspenders backstop; Codex uses app-server permission interception (optimistic) and post-hoc filesystem snapshots. Per-stage agent overrides work with any supported adapter without requiring settings-file hooks except for Claude.
+**Hook compatibility:** All supported adapters enforce contracts and read-only paths. Claude uses settings-file hooks with launch-time write blocking; Gemini uses `--approval-mode default` with post-hoc snapshots as a belt-and-suspenders backstop; OpenCode injects native permission rules via `OPENCODE_CONFIG_CONTENT`; Cursor writes native deny rules to `.cursor/cli.json` (restored after the session) with post-hoc snapshots as a belt-and-suspenders backstop; Codex uses app-server permission interception (optimistic) and post-hoc filesystem snapshots; Antigravity uses SDK capabilities where supported with post-hoc `ACPReadOnlySnapshot` enforcement as a backstop. Per-stage agent overrides work with any supported adapter without requiring settings-file hooks except for Claude.
 
 ### `backup_artifacts` {#backup_artifacts}
 
@@ -324,6 +324,44 @@ stages:
     max_iterations_next_stage: Verify
 ```
 
+### `reset_iterations` {#reset_iterations}
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `reset_iterations` | `list[str]` | No | List of stage names whose visit counters are reset to `0` after this stage completes successfully. Default `[]` (no resets). |
+
+**Behavior:**
+- `reset_iterations` lets a pipeline author clear the iteration history of downstream review stages when a broader delivery stage succeeds. This is useful in review loops where one stage validates the overall delivery and then sends work back through narrower review stages that would otherwise retain stale visit counts from prior cycles.
+- Reset occurs only on the successful-completion path — after hook/artifact validation passes and route resolution succeeds. Reset does not run on stage failure, retry, hook block, missing/invalid contract route, interrupted execution, or `max_iterations` forced routing.
+- The declaring stage's own `iteration_counts` entry is not reset by this field. A stage cannot include its own name in `reset_iterations` (self-reset is invalid because success already clears that stage's retry count).
+- Resetting a target stage's visit counter does not change that stage's failure retry counter (`max_retries`); only `iteration_counts` for the named stages are set to `0`.
+- Each entry must reference an existing configured stage name (case-sensitive). Unknown targets and self-targets are rejected at config validation time.
+- Duplicate entries are deduplicated during parsing while preserving first-seen order.
+- Empty or absent lists are no-ops.
+- When resets fire, the pipeline logs an `IterationReset` JSON entry with the previous and new iteration counts, emits a human-readable message to stderr naming the reset targets, and sends a `stage_iteration_reset` event to any active stage event callback.
+- When `reset_iterations` is non-empty, the Running and Success JSON log entries include the field so downstream tooling can inspect configured reset behavior without waiting for the reset event.
+
+**Example:**
+```yaml
+stages:
+  - name: Review Delivery Docs
+    max_iterations: 3
+    max_iterations_next_stage: Implement
+    reset_iterations:
+      - Review Code
+      - Review Docs
+    contract:
+      routes:
+        APPROVED:
+          next_stage: Review Code
+        CHANGES_MADE:
+          next_stage: Implement
+
+  - name: Review Code
+    max_iterations: 10
+    max_iterations_next_stage: Review Docs
+```
+
 ### Per-Stage Model Override (`stage_models`) {#stage_models}
 
 Per-stage model overrides live in `~/.cybervisor/config.yaml` (not in `cybervisor.yaml`) because they are a per-user runtime concern, not a pipeline-structure concern.
@@ -358,7 +396,7 @@ stage_models:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `read_only_paths` | `list[str]` | No | Per-stage list of glob patterns for files that write-tool calls must not modify during that stage. When set, Claude uses a `PreToolUse` hook (blocks writes at launch time); Gemini uses `--approval-mode default` with post-hoc filesystem snapshots as a backstop; OpenCode generates native permission deny rules in `OPENCODE_CONFIG_CONTENT` with post-hoc snapshots as a backstop; Cursor writes native deny rules to `.cursor/cli.json` (restored after the session) with post-hoc snapshots as a backstop; Codex app-server snapshots protected files, restores changes after each turn, and fails the attempt. The pipeline runner also injects a read-only-paths section into the stage prompt to inform the agent about protected paths. When empty or absent, no tool-use hook or adapter read-only enforcement is active and no read-only section is appended to the prompt. |
+| `read_only_paths` | `list[str]` | No | Per-stage list of glob patterns for files that write-tool calls must not modify during that stage. When set, Claude uses a `PreToolUse` hook (blocks writes at launch time); Gemini uses `--approval-mode default` with post-hoc filesystem snapshots as a backstop; OpenCode generates native permission deny rules in `OPENCODE_CONFIG_CONTENT`; Cursor writes native deny rules to `.cursor/cli.json` (restored after the session) with post-hoc snapshots as a backstop; Codex app-server snapshots protected files, restores changes after each turn, and fails the attempt; Antigravity uses SDK capabilities where supported and post-hoc `ACPReadOnlySnapshot` enforcement as a backstop. The pipeline runner also injects a read-only-paths section into the stage prompt to inform the agent about protected paths. When empty or absent, no tool-use hook or adapter read-only enforcement is active and no read-only section is appended to the prompt. |
 
 **Behavior:**
 - `read_only_paths: []` (empty list) or absent — no write protection for that stage, and no read-only section is appended to the prompt. Claude hooks and adapter-level enforcement are skipped, avoiding overhead on every tool call or turn.
@@ -373,7 +411,7 @@ stage_models:
 
 **Prompt injection:** When a stage has non-empty `read_only_paths`, the pipeline runner appends a read-only-paths section to the assembled stage prompt. This section lists each protected pattern and instructs the agent not to modify files matching those paths. The section is inserted after the injection appendix (if any) and before contract guidance, following the established append-only pattern. This provides defense-in-depth: the agent receives upfront guidance about protected paths, reducing wasted tool-call budget on blocked or restored writes, while runtime enforcement continues to enforce the constraint.
 
-**Event logging:** All permission decisions (allow/deny) from `read_only_paths` enforcement are recorded in `.cybervisor/hooks/hook-events.jsonl`. For Claude, `permission_denied` and `permission_allowed` events are logged when the PreToolUse hook blocks or allows a write. For Gemini, OpenCode, and Cursor, `enforcement` events are logged when the post-hoc snapshot detects and restores a protected-file modification; an `enforcement_mode` marker (`"proactive"` or `"post_hoc_only"`) records whether ACP `session/request_permission` handling is active (native OpenCode and Cursor permission config still applies regardless). For Codex, `permission_denied` events are logged when the optimistic interception layer denies a file-change approval, and `enforcement` events are logged when the snapshot detects and restores modifications. Check this file when debugging unexpected blocks or allowed writes.
+**Event logging:** All permission decisions (allow/deny) from `read_only_paths` enforcement are recorded in `.cybervisor/hooks/hook-events.jsonl`. For Claude, `permission_denied` and `permission_allowed` events are logged when the PreToolUse hook blocks or allows a write. For Gemini and Cursor, `enforcement` events are logged when the post-hoc snapshot detects and restores a protected-file modification; an `enforcement_mode` marker (`"proactive"` or `"post_hoc_only"`) records whether ACP `session/request_permission` handling is active (native OpenCode permission config via `OPENCODE_CONFIG_CONTENT` and native Cursor permission config via `.cursor/cli.json` still apply regardless). For Codex, `permission_denied` events are logged when the optimistic interception layer denies a file-change approval, and `enforcement` events are logged when the snapshot detects and restores modifications. Check this file when debugging unexpected blocks or allowed writes.
 
 **Example:**
 ```yaml

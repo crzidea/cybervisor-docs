@@ -40,14 +40,26 @@ export default defineConfig({
           { text: "Runtime and Daemon (User Guide)", link: "/runtime-user" },
           { text: "Updating cybervisor", link: "/updating" },
           { text: "Shell Completions", link: "/completions" },
-          { text: "Troubleshooting", link: "/troubleshooting" },
+          { text: "Troubleshooting", link: "/troubleshooting/index" },
           { text: "Testing and Sandbox", link: "/testing" },
+        ],
+      },
+      {
+        text: "Agent Guides",
+        items: [
+          { text: "Claude Code", link: "/agents/claude" },
+          { text: "Gemini", link: "/agents/gemini" },
+          { text: "Cursor", link: "/agents/cursor" },
+          { text: "OpenCode", link: "/agents/opencode" },
+          { text: "Antigravity", link: "/agents/antigravity" },
+          { text: "Codex", link: "/agents/codex" },
         ],
       },
       {
         text: "Developer Guides",
         items: [
           { text: "Runtime and Daemon (Developer Reference)", link: "/runtime-internals" },
+          { text: "Testing Reference", link: "/testing-dev" },
           { text: "Updating (Developer Reference)", link: "/updating-dev" },
           { text: "Development", link: "/development" },
           { text: "Adding an Adapter", link: "/contributing/adding-an-adapter" },

@@ -30,7 +30,7 @@ cybervisor --version
 
 ## 2. Choose Your Agent
 
-Set the default agent tool. Options are `claude`, `gemini`, `codex`, `opencode`, `cursor`, or `mock`:
+Set the default agent tool. Options are `claude`, `gemini`, `codex`, `opencode`, `cursor`, `antigravity`, or `mock`:
 
 ```bash
 cybervisor use claude
@@ -96,7 +96,7 @@ stage_agents:
   "Review Delivery Docs": gemini
 ```
 
-Each key is a stage name (case-sensitive, matching `cybervisor.yaml`); the value is the agent tool to use for that stage. Values must match a supported agent name (`claude`, `gemini`, `codex`, `opencode`, `cursor`, `mock`). Stages not listed fall back to the global `agent_tool`. See [Configuration Reference — Global Config: stage_agents](configuration.md#stage-agents) for full details.
+Each key is a stage name (case-sensitive, matching `cybervisor.yaml`); the value is the agent tool to use for that stage. Values must match a supported agent name (`claude`, `gemini`, `codex`, `opencode`, `cursor`, `antigravity`, `mock`). Stages not listed fall back to the global `agent_tool`. See [Configuration Reference — Global Config: stage_agents](configuration.md#stage-agents) for full details.
 
 ---
 
@@ -123,9 +123,16 @@ The `mock` agent (`cybervisor use mock`) requires no external binary or API key.
 
 The `cursor` agent requires the `cursor-agent` CLI on `PATH` with ACP mode support (`cursor-agent acp` must be available). Before running a pipeline, authenticate by setting `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN` in the environment, or by running `cursor login`. See [Configuration Reference — Cursor Notes](configuration.md#cursor-notes) for full setup details.
 
+### The `antigravity` Agent
+
+The `antigravity` agent uses the `google-antigravity` Python SDK and runs in-process (no CLI binary needed). The SDK is included as a standard Cybervisor dependency — no separate install is required. Before running a pipeline, authenticate by setting `GOOGLE_APPLICATION_CREDENTIALS` or running `gcloud auth application-default login`. Model overrides for specific stages can be set via top-level `stage_models` in `~/.cybervisor/config.yaml`. See [Configuration Reference — Antigravity Notes](configuration.md#antigravity-notes) for full setup details.
+
+> [!WARNING]
+> **Google AI Pro Subscription Limitation:** At this time, the `antigravity` SDK cannot be authenticated using a Google AI Pro / Google One AI Premium subscription (consumer accounts). You must use standard Google Cloud Application Default Credentials (ADC) or a Service Account key file. Additionally, the Antigravity CLI (`agy`) is not supported by Cybervisor because it does not offer ACP (Agent Connection Protocol), hook integration, or JSONL log parsing.
+
 ### The `opencode` Agent
 
-The `opencode` agent requires the `opencode` CLI on `PATH` with ACP mode support (`opencode acp` must be available; OpenCode v0.4.0 or later). Cybervisor injects model, permission, and file-context settings through `OPENCODE_CONFIG_CONTENT` and does **not** create or modify `opencode.json` in your workspace. Use top-level `stage_models` in `~/.cybervisor/config.yaml` to override the model for specific OpenCode stages. See [Configuration Reference — OpenCode Notes](configuration.md#opencode-notes) for full setup details.
+The `opencode` agent requires the `opencode` CLI on `PATH`, authenticated through your normal OpenCode CLI workflow, with serve mode support (`opencode serve` must be available; OpenCode v0.12.0 or later). Cybervisor checks `opencode serve --help` at pipeline start and during `cybervisor doctor` via adapter preflight. Each stage starts an isolated local `opencode serve` instance, injects model, permission, and file-context settings through `OPENCODE_CONFIG_CONTENT`, and does **not** create or modify `opencode.json` in your workspace. Use top-level `stage_models` in `~/.cybervisor/config.yaml` to override the model for specific OpenCode stages. See [Configuration Reference — OpenCode Notes](configuration.md#opencode-notes) for full setup details.
 
 ---
 
@@ -168,7 +175,7 @@ Or pipe from stdin:
 printf "Create a 360 feedback system" | cybervisor run
 ```
 
-Watch the pipeline execute stage by stage. Output streams to stderr; full logs are written to `.cybervisor/logs/`.
+Watch the pipeline execute stage by stage. Output streams to stderr; full logs are written to `.cybervisor/logs/`. Logs are cleared before each run so they always reflect the current execution — previous run logs are not preserved.
 
 ---
 
@@ -210,4 +217,4 @@ cybervisor run "Create a 360 feedback system" --end-after "Review Code"
 - Learn the full config surface: [Configuration Reference](/configuration.html)
 - Design custom pipelines with contracts: [Pipeline Authoring Guide](/pipeline-authoring.html)
 - Run in daemon mode for headless/remote execution: [Runtime and Daemon](/runtime-user.html) and [WebSocket Protocol](/websocket-protocol.html)
-- Troubleshoot common issues: [Troubleshooting](/troubleshooting.html)
+- Troubleshoot common issues: [Troubleshooting](/troubleshooting/index.html)

@@ -4,7 +4,7 @@ title: Shell Completions
 
 # Shell Completions
 
-**Audience:** Users
+> **Audience: Users** — Shell operators setting up autocompletion.
 
 cybervisor provides bash tab completion through two mechanisms: an `argcomplete`-based eval method (dynamic) and a static completion script (no dependencies).
 

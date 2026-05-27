@@ -19,7 +19,7 @@ title: Configuration Reference
 
 The global config file is created with `0o600` permissions (owner read/write only) to protect API keys and other sensitive credentials from being world-readable.
 
-Manage the default agent with `cybervisor use <agent>`. Supported: `claude`, `gemini`, `codex`, `opencode`, `cursor`, `mock`.
+Manage the default agent with `cybervisor use <agent>`. Supported: `claude`, `gemini`, `codex`, `opencode`, `cursor`, `antigravity`, `mock`.
 
 ```yaml
 agent_tool: gemini
@@ -88,41 +88,16 @@ usage_reporting:
   user: alice@example.com
 ```
 
-### Codex Notes
-- Requires the `codex` CLI on `PATH`.
-- Blocked-start guidance: `Codex requires the codex CLI on PATH. Install it and verify with codex --version.`
-- Uses the app-server JSON-RPC protocol. Unlike Gemini, OpenCode, and Cursor, this path does not use ACP `session/request_permission` for read-only path enforcement.
-- Starts Codex with config overrides `sandbox_mode="danger-full-access"` and `approval_policy="never"` plus matching app-server thread/turn sandbox settings because Cybervisor supplies the outer sandbox/container boundary; this avoids nested Codex sandbox setup warnings such as missing bubblewrap.
-- Answers app-server approval callbacks autonomously for command, file-change, and permission requests. For `item/fileChange/requestApproval`, protected paths matching `read_only_paths` receive a `deny` response (optimistic — Codex may bypass via alternative paths). For `item/permissions/requestApproval`, filesystem entries exclude protected patterns instead of granting blanket root write access.
-- Read-only path enforcement is **primarily via filesystem snapshots**: files matching active `read_only_paths` are snapshotted before the first turn, and after each turn protected changes are restored. A protected-path change raises `RuntimeError`, failing the stage attempt. Each enforcement decision (modified/created/deleted path restoration) is logged to `.cybervisor/hooks/hook-events.jsonl` with action type and restoration status. The interception layer is optimistic; the snapshot is the reliable enforcement layer.
+## Agent Configuration and Notes
 
-### Gemini Notes
-- Requires the `gemini` CLI on `PATH` with ACP mode support (`gemini --acp` must be available; requires a recent version of Gemini CLI).
-- Uses Strategy B (runtime config only) — no native settings hooks are installed. Contract enforcement runs through `evaluate_reply()` after each prompt turn, with a verify-and-continue loop that sends continuation prompts when the verifier blocks.
-- **Permission enforcement**: The adapter launches with `--approval-mode default` so Gemini emits `session/request_permission` before tool execution. Cybervisor's ACP permission handler proactively denies disallowed tools and protected-path writes. **`ACPReadOnlySnapshot`** post-hoc restoration remains as belt-and-suspenders for writes the proactive layer may miss (child processes, shell commands).
-- Authentication: The adapter sends an ACP `authenticate` request between `initialize` and `session/new`, using the authentication method derived from the `initialize` response (`authMethods` in current Gemini CLI, legacy `capabilities.authMethods` in older versions). Known legacy values (e.g., `google_login`) are mapped transparently to their current ACP enum values. If authentication fails, the adapter raises a `RuntimeError`. Ensure you have authenticated with Gemini CLI before starting the pipeline, or that your environment supports the advertised authentication method.
-- The adapter communicates with Gemini CLI over JSON-RPC via stdio (`gemini --acp`). The `--yolo`, `--sandbox`, and `--output-format stream-json` CLI flags are no longer used.
-- Blocked-start guidance: `Gemini requires the gemini CLI on PATH. Install it and verify with gemini --version.` If `gemini --acp` is not available, the guidance directs ensuring a recent version of Gemini CLI is installed.
+For detailed agent-specific configuration, prerequisites, authentication, and permission enforcement details, please consult the respective agent guides:
 
-### OpenCode Notes
-- Requires the `opencode` CLI on `PATH` with ACP mode support (`opencode acp` must be available; requires OpenCode v0.4.0 or later).
-- Uses Strategy B (runtime config only) — no native settings hooks are installed. Contract enforcement runs through `evaluate_reply()` after each prompt turn, with a verify-and-continue loop that sends continuation prompts when the verifier blocks.
-- **Model override** (`stage_models`): When a model is specified for an OpenCode stage via `stage_models`, the adapter injects it through the `OPENCODE_CONFIG_CONTENT` environment variable, which takes highest precedence in OpenCode's config resolution. When no Cybervisor `stage_models` override is set, the adapter reads the user's OpenCode model configuration from global and project config files and propagates it so that OpenCode ACP mode matches the model the user sees when running `opencode` interactively, instead of falling back to `opencode/big-pickle`. After session creation, `session/set_model` is also attempted as a secondary best-effort call. The adapter verifies the model was applied by inspecting the `session/new` response and logs a WARNING if the active model differs. Cybervisor does **not** create or modify `opencode.json` in the workspace — all overrides are injected via `OPENCODE_CONFIG_CONTENT`. Model selection in OpenCode is a known upstream limitation — bugs #13644, #21556, and #18620 may cause the model setting to be silently ignored.
-- **Permission enforcement**: The adapter generates native OpenCode permission configuration from Cybervisor's `disallowed_tools` and `read_only_paths` settings and injects it via `OPENCODE_CONFIG_CONTENT` — this is the primary mechanism for enforcing permissions. The adapter does **not** use `session/set_mode` for permission enforcement. OpenCode's "build" and "plan" modes are agent execution modes that lack permission semantics — the adapter excludes them from `set_mode` consideration. When no genuine permission-asking mode remains, no `set_mode` call is made and enforcement is `"post_hoc_only"` from the start. A first-turn health check detects the rare case where `set_mode` succeeds with a mode that still does not deliver permission requests. See [Troubleshooting — Write Protection](troubleshooting.md#write-protection-read_only_paths) for details.
-- **File-context disabling**: Cybervisor automatically disables OpenCode's file-context ingestion for Cybervisor runs. This is done through three mechanisms: (1) the generated runtime config sets `instructions` to an empty array, preventing OpenCode from loading context files automatically; (2) the adapter sets `OPENCODE_DISABLE_PROJECT_CONFIG=true` and `OPENCODE_DISABLE_CLAUDE_CODE=true` environment variables to suppress project-level config discovery and Claude-specific context ingestion; (3) legacy `fileContext` and `contextPaths` keys are stripped from the merged config. Disabling file context ensures the agent receives only the prompt and artifact context Cybervisor explicitly provides.
-- Read-only path enforcement is **post-hoc via filesystem snapshots** as a belt-and-suspenders backstop. Native OpenCode permissions proactively deny writes on protected paths. The snapshot compares file content hashes before and after each turn and restores any protected-file modifications. This catches writes from any source (ACP tool calls, bash commands, child processes).
-- Tool disabling (e.g., `question`) is handled via native OpenCode permission configuration injected through `OPENCODE_CONFIG_CONTENT`, replacing the previous `OPENCODE_CONFIG` environment variable approach.
-- The adapter communicates with OpenCode over JSON-RPC via stdio (`opencode acp`), not CLI flags. The `--dangerously-skip-permissions` and `--format json` flags are no longer used.
-- Blocked-start guidance: `OpenCode requires the opencode CLI on PATH. Install it and verify with opencode --version.` If `opencode acp` is not available, the guidance directs upgrading to OpenCode v0.4.0 or later.
-
-### Cursor Notes
-- Requires the `cursor-agent` CLI on `PATH` with ACP mode support (`cursor-agent acp` must be available).
-- Uses Strategy B (runtime config only) — no native settings hooks are installed. Contract enforcement runs through `evaluate_reply()` after each prompt turn, with a verify-and-continue loop that sends continuation prompts when the verifier blocks.
-- **Permission enforcement**: The adapter generates native Cursor CLI permission configuration from Cybervisor's `read_only_paths` settings and writes it to the project-level `.cursor/cli.json` before launching the agent. The existing config (if any) is backed up and restored after the session ends. Deny rules prevent writes to protected paths via the `Write(pathOrGlob)` permission type. See [Cursor CLI Permissions](https://cursor.com/docs/cli/reference/permissions) for the permission schema. Post-hoc `ACPReadOnlySnapshot` enforcement remains active as a belt-and-suspenders backstop regardless of proactive permission status.
-- Read-only path enforcement is **post-hoc via filesystem snapshots** as a belt-and-suspenders backstop. Native Cursor CLI permissions proactively deny writes on protected paths. The snapshot compares file content hashes before and after each turn and restores any protected-file modifications. This catches writes from any source (ACP tool calls, bash commands, child processes). The `session/request_permission` flow is still used for disallowed-tool denial (e.g., `question` tool kind).
-- Authentication: Set `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN` in the environment, or run `cursor login` before starting the pipeline. The adapter sends an ACP `authenticate` request (method `cursor_login`) between `initialize` and `session/new`. If authentication fails, the adapter raises a `RuntimeError`.
-- The adapter communicates with Cursor over JSON-RPC via stdio (`cursor-agent acp`), not CLI flags.
-- Blocked-start guidance: `Cursor requires the cursor-agent CLI on PATH. Install it and verify with cursor-agent --version.` If `cursor-agent acp` is not available, the guidance directs ensuring a recent version of Cursor CLI is installed.
+- **[Claude Code Agent Guide](/agents/claude.html)**
+- **[Gemini Agent Guide](/agents/gemini.html)**
+- **[Cursor Agent Guide](/agents/cursor.html)**
+- **[OpenCode Agent Guide](/agents/opencode.html)**
+- **[Antigravity Agent Guide](/agents/antigravity.html)**
+- **[Codex Agent Guide](/agents/codex.html)**
 
 ## Scaffolding (`cybervisor init`)
 
@@ -179,12 +154,15 @@ cybervisor submit "ship the retry fix" --config self-contained.yaml --start-stag
 
 ## Diagnostics & Validation
 
-### `cybervisor doctor` (Verifier Readiness)
-Validates `~/.cybervisor/config.yaml` connectivity and credentials.
+### `cybervisor doctor` (Readiness Checks)
 
-- `Doctor: verifier ready` — Success.
+Validates `~/.cybervisor/config.yaml` connectivity and credentials, and checks that the selected agent adapter passes its preflight requirements (SDK importability, platform compatibility, authentication, and verifier config where applicable).
+
+- `Doctor: verifier ready` — Verifier credentials are valid.
+- `Doctor: adapter '<agent>' ready` — Selected agent adapter passes preflight checks.
 - `Doctor: verifier blocked` — Local configuration error (e.g., missing API key).
 - `Doctor: verifier needs attention` — Remote rejection (e.g., 401 Unauthorized).
+- `Doctor: adapter '<agent>' blocked` — Agent adapter preflight failed (e.g., missing SDK, unsupported platform, missing auth).
 
 ### `cybervisor validate` (Config Safety)
 Checks `cybervisor.yaml` for route safety and prompt synchronization.
@@ -211,7 +189,7 @@ stage_agents:
 - The agent resolution order: `stage_agents[stage_name]` → global `agent_tool` default.
 - `cybervisor use <agent>` sets the global default only; it does not alter `stage_agents` entries.
 
-**Hook compatibility:** All supported adapters enforce contracts and read-only paths. Claude uses settings-file hooks with launch-time write blocking; Gemini uses `--approval-mode default` with post-hoc snapshots as a backstop; OpenCode uses native permissions in `OPENCODE_CONFIG_CONTENT` with post-hoc snapshots as a backstop; Cursor uses native deny rules in `.cursor/cli.json` with post-hoc snapshots as a backstop; Codex uses app-server permission interception (optimistic) and post-hoc filesystem snapshots. Per-stage agent overrides work with any supported adapter without requiring settings-file hooks except for Claude.
+**Hook compatibility:** All supported adapters enforce contracts and read-only paths. Claude uses settings-file hooks with launch-time write blocking; Gemini uses `--approval-mode default` with post-hoc snapshots as a backstop; OpenCode uses native permissions in `OPENCODE_CONFIG_CONTENT`; Cursor uses native deny rules in `.cursor/cli.json` with post-hoc snapshots as a backstop; Codex uses app-server permission interception (optimistic) and post-hoc filesystem snapshots; Antigravity uses SDK capabilities where supported with post-hoc `ACPReadOnlySnapshot` enforcement as a backstop. Per-stage agent overrides work with any supported adapter without requiring settings-file hooks except for Claude.
 
 ### Self-Refining Review Loop Example
 This pattern enables autonomous correction loops without a separate fix stage.
@@ -312,6 +290,38 @@ stages:
 
 See the full reference in [Pipeline Authoring Guide](pipeline-authoring.md#max_iterations) for iteration counting semantics, fallback behavior, and interaction with `end_stage_name`.
 
+### Stage Field: `reset_iterations`
+
+Add `reset_iterations` to a stage to reset the visit counters of named downstream stages after this stage completes successfully. This is useful in review loops where a broader delivery validation stage should give downstream review stages a fresh iteration budget.
+
+**Example:**
+```yaml
+stages:
+  - name: Review Delivery Docs
+    max_iterations: 3
+    max_iterations_next_stage: Implement
+    reset_iterations:
+      - Review Code
+      - Review Docs
+    contract:
+      routes:
+        APPROVED:
+          next_stage: Review Code
+        CHANGES_MADE:
+          next_stage: Implement
+```
+
+When `Review Delivery Docs` completes successfully, the visit counters for `Review Code` and `Review Docs` are reset to `0`. The next visit to either stage logs iteration `1`, giving that stage a fresh `max_iterations` budget.
+
+**Validation rules:**
+- Entries must reference existing stage names (case-sensitive). Unknown targets are rejected at config time.
+- A stage cannot include its own name in `reset_iterations` (self-reset is invalid).
+- Duplicate entries are deduplicated in order.
+- Absent or empty lists are no-ops.
+- Resets visit counters only; target stages keep their current failure retry counts (`max_retries`).
+
+See the full reference in [Pipeline Authoring Guide](pipeline-authoring.md#reset_iterations) for runtime semantics, logging, and event details.
+
 ### Global Config: `stage_models`
 
 Add a top-level `stage_models` section in `~/.cybervisor/config.yaml` to override the agent tool model for specific stages. Keys are stage names (case-sensitive); values are model identifiers (e.g., `claude-sonnet-4-6`, `gemini-2.5-pro`). The verifier always uses the global `llm.model`.
@@ -384,7 +394,7 @@ stages:
 ```
 
 **Behavior:**
-- When a stage has `read_only_paths` set, write protection is enforced per adapter: Claude Code uses a `PreToolUse` hook (blocks writes at launch time); Gemini, OpenCode, and Cursor enforce it via post-hoc filesystem snapshots that detect and restore protected-file modifications after each turn; Codex app-server snapshots matching files, restores protected changes after each turn, and fails the attempt.
+  - When a stage has `read_only_paths` set, write protection is enforced per adapter: Claude Code uses a `PreToolUse` hook (blocks writes at launch time); Gemini and Cursor enforce it via post-hoc filesystem snapshots that detect and restore protected-file modifications after each turn; OpenCode uses native permission deny rules in `OPENCODE_CONFIG_CONTENT`; Codex app-server snapshots matching files, restores protected changes after each turn, and fails the attempt; Antigravity uses SDK capabilities where supported and post-hoc `ACPReadOnlySnapshot` enforcement that detects and restores protected-file modifications after the agent run.
 - Write tools (`Write`, `Edit`, `NotebookEdit`) extract the target file path and check it against all patterns.
 - Bash tool calls are inspected for file-write patterns (`>`, `>>`, `sed -i`, `tee`). If a write pattern targets a read-only path, the call is blocked. This is conservative — false positives are accepted over missed writes.
 - Read tools (`Read`, `Glob`, `Grep`, etc.) are always allowed and are not included in the hook matcher, so the hook is never invoked for them.
