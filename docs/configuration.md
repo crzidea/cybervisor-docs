@@ -277,7 +277,7 @@ See the full reference in [Pipeline Authoring Guide](pipeline-authoring.md#clean
 
 ### Stage Fields: `max_iterations` and `max_iterations_next_stage`
 
-Set `max_iterations` on a stage to cap how many times it may be visited (including contract route-backs). The counter increments on fresh visits only (not on retries), never resets on success, and triggers forced routing when exceeded. When the cap is exceeded, the pipeline forces a route to `max_iterations_next_stage` instead of following normal contract routing. Default is `0` (disabled). Stages with `max_iterations > 0` log the current iteration count at stage start (e.g., `iteration 1/5`) in both stderr output and JSON logs, and include `iteration_count` and `max_iterations` in stage-start events.
+Set `max_iterations` on a stage to cap how many times it may be visited (including contract route-backs). The counter increments on the first attempt of each visit (not on retries) and never resets on success. Enforcement happens after successful execution and contract validation, not before the agent starts. Omit `max_iterations_next_stage` for sequential fallback — no warning is emitted. Normal contract routes, terminal routes, outgoing injections, and `reset_iterations` are suppressed on the limiting completion. Default is `0` (disabled). Stages with `max_iterations > 0` log the current iteration count at stage start (e.g., `iteration 1/5`) in both stderr output and JSON logs, and include `iteration_count` and `max_iterations` in stage-start events.
 
 **Example:**
 ```yaml

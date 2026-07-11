@@ -281,11 +281,11 @@ stages:
 | `max_iterations` | `int` | No | Maximum number of times a stage may be visited (across all visits, including contract route-backs). Default `0` (disabled / no cap). |
 
 **Behavior:**
-- `max_iterations` counts visits per stage (including contract route-backs). A single `iteration_counts` array tracks visits per stage: it increments on fresh visits only (when `retry_counts == 0`, not on retries) and never resets on success. This means retries within the same visit do not inflate the count, while route-backs correctly accumulate for enforcement.
+- `max_iterations` counts visits per stage (including contract route-backs). The counter increments on the first attempt of each stage visit and never resets on success. Retries within the same visit do not inflate the count, while route-backs correctly accumulate for enforcement.
 - Default is `0` (disabled / no cap), preserving backward compatibility.
-- The iteration count is incremented on fresh entry (before the agent subprocess starts), not on retries. The max-iterations check uses a strictly-greater-than comparison: when `iteration_count > max_iterations`, the pipeline forces a route. This means `max_iterations: 3` allows exactly 3 full agent executions, with forced routing on the 4th visit.
-- When `max_iterations` is exceeded, the pipeline routes to `max_iterations_next_stage` instead of following the normal contract route or retry logic. The stage's contract artifact is not validated (treated as a forced advance). The pipeline logs the event with `decision_source: "max_iterations_exceeded"` and includes `iteration_count` (total visits) in the log.
-- The max-iterations check is evaluated before the retry-exhaustion check. If both `max_iterations` and `max_retries` are exceeded simultaneously, max-iterations takes priority and forces a route (rather than aborting the pipeline).
+- The limit enforcement uses a reached-or-exceeded comparison: when `iteration_count >= max_iterations`, the pipeline forces a route. The max-iterations check uses a reached-or-exceeded comparison: when `iteration_count >= max_iterations`, the pipeline forces a route. Enforcement happens after a successful execution and valid contract route resolution, not before the agent subprocess starts. This means `max_iterations: 3` allows exactly 3 full agent executions with contract validation on each, then forces routing after the 3rd successful completion.
+- When the limit is reached, the pipeline still executes the stage, validates the contract artifact, and performs required status and route validity checks (missing/unmatched status and invalid destinations still fail). After these pass, the limit route takes precedence: the pipeline routes to `max_iterations_next_stage` (or the next sequential stage when omitted), and the normal contract route, terminal route, outgoing injections, and `reset_iterations` effects are all suppressed for that completion. The pipeline logs the event with `decision_source: "max_iterations_exceeded"` and includes `iteration_count` (completed visits) in the log.
+- Failed attempts follow the existing retry policy. They neither force a limit route nor receive another iteration count. If retries are exhausted on the final allowed visit, the pipeline fails through retry exhaustion — no limit route event is emitted.
 - When `max_iterations > 0`, the iteration count and max are logged at stage start: stderr shows `[{stage.name}] Running attempt {attempt} (iteration {count}/{max})`, JSON logs include `iteration_count` and `max_iterations` keys in the "Running" entry, and stage-start events include `iteration_count` and `max_iterations` fields. When `max_iterations == 0` (the default), no iteration info is added — the behavior is backward compatible.
 
 **Example:**
@@ -310,7 +310,7 @@ stages:
 | `max_iterations_next_stage` | `str` or `null` | No | Stage to route to when `max_iterations` is exceeded. Must reference an existing stage name. |
 
 **Behavior:**
-- When `max_iterations > 0` and `max_iterations_next_stage` is absent, config validation emits a warning (not an error). At runtime, the pipeline falls back to sequential advance (`current_index + 1`).
+- When `max_iterations > 0` and `max_iterations_next_stage` is absent, the pipeline falls back to sequential advance (`current_index + 1`). Omission is intentional and accepted without a configuration warning.
 - The existing `next_stage` field is NOT used as a fallback for iteration exhaustion. Iteration exhaustion is an escape hatch with an explicit destination or sequential advance.
 - If the resolved next stage exceeds the number of defined stages, the pipeline terminates successfully.
 - After resolving the forced-route target, the `end_stage_name` boundary is checked: if `end_stage_name` is set and the resolved next stage position is strictly greater than the end-stage boundary position, the pipeline terminates successfully.
