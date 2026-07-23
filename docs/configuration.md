@@ -19,14 +19,19 @@ title: Configuration Reference
 
 The global config file is created with `0o600` permissions (owner read/write only) to protect API keys and other sensitive credentials from being world-readable.
 
-Manage the default agent with `cybervisor use <agent>`. Supported: `claude`, `gemini`, `codex`, `opencode`, `cursor`, `antigravity`, `mock`.
+Manage the default agent with `cybervisor use <agent>`. Supported: `claude`, `codex`, `opencode`, `cursor`, `antigravity`, `mock`.
+
+The `llm.api_key` field is required only for stages that need model-assisted stop verification — that is, non-contract stages assigned to a non-mock adapter. Contract-enabled stages validate their result artifacts locally and do not invoke the verifier, so a contract-only stage slice does not require `llm.api_key`. The selected agent may still require its own credentials independent of this setting.
 
 ```yaml
-agent_tool: gemini
+agent_tool: claude
 llm:
   api_key: your-api-key
   base_url: https://api.openai.com/v1 # Optional
   model: gpt-4o                     # Optional
+agents:
+  cursor:
+    api_key: your-cursor-api-key    # Required when Cursor is selected
 server:
   host: 127.0.0.1        # Interface to bind; use 0.0.0.0 to expose externally
   port: 8765            # WebSocket port for daemon mode
@@ -57,11 +62,15 @@ cybervisor sandbox --host 0.0.0.0 --port 9000
 cybervisor sandbox --background           # Detached mode
 cybervisor sandbox --image myregistry/cybervisor:dev  # Use a custom image
 cybervisor sandbox --no-pull              # Skip auto-pull, use cached image
+cybervisor sandbox --mount /data:/data:ro # Mount extra host paths
+cybervisor sandbox --group-add docker     # Add supplementary Docker group
 ```
 
 ### Workspace-Local Config Override
 
 A `.cybervisor/config.yaml` file in the current working directory completely replaces `~/.cybervisor/config.yaml` when present — all settings (verifier, `agent_tool`, `stage_models`, `stage_agents`, `usage_reporting`, `server`, etc.) come from the workspace-local file, and the home-directory config is not loaded. Pipeline configuration (`cybervisor.yaml`) has no CWD override — it is always resolved from the project root.
+
+This precedence is honored on every stage-boundary reload, not just at task start, so editing or removing the workspace-local file mid-run takes effect at the next stage. If the workspace-local file is removed during a run, the next reload resolves `~/.cybervisor/config.yaml` without operator action. See [Runtime and Daemon — Per-Stage Config Reload](runtime-user.md#per-stage-config-reload) for full reload behavior.
 
 This is useful for teams that need project-specific verifier credentials or model overrides without modifying the global config.
 
@@ -93,17 +102,32 @@ usage_reporting:
 For detailed agent-specific configuration, prerequisites, authentication, and permission enforcement details, please consult the respective agent guides:
 
 - **[Claude Code Agent Guide](/agents/claude.html)**
-- **[Gemini Agent Guide](/agents/gemini.html)**
 - **[Cursor Agent Guide](/agents/cursor.html)**
 - **[OpenCode Agent Guide](/agents/opencode.html)**
 - **[Antigravity Agent Guide](/agents/antigravity.html)**
 - **[Codex Agent Guide](/agents/codex.html)**
 
+### Cursor Credentials
+
+The Cursor adapter reads its API key only from `agents.cursor.api_key` in the
+active Cybervisor config:
+
+```yaml
+agent_tool: cursor
+agents:
+  cursor:
+    api_key: your-cursor-api-key
+```
+
+When `.cybervisor/config.yaml` exists in the workspace, it replaces the home
+config, so the Cursor key must be present there. Environment variables and
+Cursor CLI login state are not fallback credential sources.
+
 ## Scaffolding (`cybervisor init`)
 
 Initialize a project scaffold. Overwrite protection is active by default.
 
-- `cybervisor init`: Creates a `simple` 6-stage pipeline with `Design Delivery -> Review Delivery Docs -> Implement -> Review Code -> Review Docs -> Verify`.
+- `cybervisor init`: Creates a `simple` 6-stage pipeline with `Plan -> Review Plan -> Implement -> Review Code -> Review Docs -> Verify`.
 - `cybervisor init --template speckit`: Creates a `speckit`-integrated pipeline.
 - `--force`: Required to explicitly replace an existing `cybervisor.yaml`.
 
@@ -126,10 +150,11 @@ When `--path <dir>` is provided with `cybervisor submit`, positional prompts and
 
 ```bash
 cybervisor run "Implement feature X"
-cybervisor run --config custom.yaml        # Use specific config
-cybervisor run --start-stage "Implement"   # Resume from stage
-cybervisor run --end-after "Review Code"  # Run up to and including this stage, then stop (updatable via end --after in daemon mode)
-cybervisor run --end-before "Verify"       # Stop before this stage (updatable via end --before in daemon mode)
+cybervisor run --config custom.yaml              # Use specific config
+cybervisor run --start-from "Implement"          # Start fresh at this stage
+cybervisor run --start-from "Implement" --resume # Resume from last captured session
+cybervisor run --end-after "Review Code"         # Run up to and including this stage, then stop (updatable via end --after in daemon mode)
+cybervisor run --end-before "Verify"             # Stop before this stage (updatable via end --before in daemon mode)
 ```
 
 ### Self-Contained Config Flow Example
@@ -140,7 +165,7 @@ If all active stages define an explicit `prompt_template`, the positional prompt
 cybervisor run --config self-contained.yaml
 
 # Using stage templates (daemon)
-cybervisor submit --config self-contained.yaml --start-stage "Design Delivery"
+cybervisor submit --config self-contained.yaml --start-from "Plan"
 
 # Overriding with stdin (standalone)
 printf 'hotfix retry handling\n' | cybervisor run --config self-contained.yaml
@@ -149,7 +174,7 @@ printf 'hotfix retry handling\n' | cybervisor run --config self-contained.yaml
 cybervisor run "ship the retry fix" --config self-contained.yaml
 
 # Overriding with positional prompt (daemon)
-cybervisor submit "ship the retry fix" --config self-contained.yaml --start-stage "Implement"
+cybervisor submit "ship the retry fix" --config self-contained.yaml --start-from "Implement"
 ```
 
 ## Diagnostics & Validation
@@ -178,8 +203,8 @@ Per-stage agent overrides live in `~/.cybervisor/config.yaml` (not in `cyberviso
 # ~/.cybervisor/config.yaml
 agent_tool: claude
 stage_agents:
-  "Design Delivery": gemini
-  "Review Delivery Docs": gemini
+  "Plan": codex
+  "Review Plan": codex
 ```
 
 **Behavior:**
@@ -189,7 +214,7 @@ stage_agents:
 - The agent resolution order: `stage_agents[stage_name]` → global `agent_tool` default.
 - `cybervisor use <agent>` sets the global default only; it does not alter `stage_agents` entries.
 
-**Hook compatibility:** All supported adapters enforce contracts and read-only paths. Claude uses settings-file hooks with launch-time write blocking; Gemini uses `--approval-mode default` with post-hoc snapshots as a backstop; OpenCode uses native permissions in `OPENCODE_CONFIG_CONTENT`; Cursor uses native deny rules in `.cursor/cli.json` with post-hoc snapshots as a backstop; Codex uses app-server permission interception (optimistic) and post-hoc filesystem snapshots; Antigravity uses SDK capabilities where supported with post-hoc `ACPReadOnlySnapshot` enforcement as a backstop. Per-stage agent overrides work with any supported adapter without requiring settings-file hooks except for Claude.
+**Hook compatibility:** All supported adapters enforce contracts and read-only paths. Claude uses post-hoc filesystem snapshots with no settings-file hooks. OpenCode uses native permissions in `OPENCODE_CONFIG_CONTENT`. Cursor uses snapshot-only post-hoc enforcement. Codex uses app-server permission interception and post-hoc filesystem snapshots. Antigravity uses SDK capabilities where supported with post-hoc enforcement as a backstop. Per-stage agent overrides work with any supported adapter without requiring settings-file hooks.
 
 ### Self-Refining Review Loop Example
 This pattern enables autonomous correction loops without a separate fix stage.
@@ -231,6 +256,7 @@ stages:
 - **Status Match:** Route keys MUST appear in the emitted YAML `Status` field (capitalized). Lowercase `status` is rejected with a clear error message.
 - **Injections:** Injected fields MUST have a corresponding entry in `contract.fields` or `contract.field_definitions`.
 - **Self-Referencing Routes:** Self-referencing routes (where `next_stage` equals the stage's own `name`) SHOULD use `max_iterations` with `max_iterations_next_stage` to prevent unbounded loops.
+- **Required Tasks:** Optional `contract.required_tasks` lists fixed work items that must appear in the artifact's `Completed Tasks` YAML list before any route passes. See [Pipeline Authoring Guide](pipeline-authoring.md#required_tasks) for configuration and behavior.
 
 ### Stage Field: `backup_artifacts`
 
@@ -277,7 +303,7 @@ See the full reference in [Pipeline Authoring Guide](pipeline-authoring.md#clean
 
 ### Stage Fields: `max_iterations` and `max_iterations_next_stage`
 
-Set `max_iterations` on a stage to cap how many times it may be visited (including contract route-backs). The counter increments on the first attempt of each visit (not on retries) and never resets on success. Enforcement happens after successful execution and contract validation, not before the agent starts. Omit `max_iterations_next_stage` for sequential fallback — no warning is emitted. Normal contract routes, terminal routes, outgoing injections, and `reset_iterations` are suppressed on the limiting completion. Default is `0` (disabled). Stages with `max_iterations > 0` log the current iteration count at stage start (e.g., `iteration 1/5`) in both stderr output and JSON logs, and include `iteration_count` and `max_iterations` in stage-start events.
+Set `max_iterations` on a stage to cap how many times it may be visited (including contract route-backs). The counter increments on fresh visits only (not on retries), never resets on success, and triggers forced routing when reached. After a successful, contract-valid completion at the configured count, the pipeline forces a route to `max_iterations_next_stage` instead of following normal contract routing. The limit route suppresses contract routing, top-level `next_stage`, outgoing injections, and `reset_iterations` for that completion. Default is `0` (disabled). Stages with `max_iterations > 0` log the current iteration count at stage start (e.g., `iteration 1/5`) in both stderr output and JSON logs, and include `iteration_count` and `max_iterations` in stage-start events. Omitting `max_iterations_next_stage` is accepted without a warning and means sequential advance.
 
 **Example:**
 ```yaml
@@ -297,7 +323,7 @@ Add `reset_iterations` to a stage to reset the visit counters of named downstrea
 **Example:**
 ```yaml
 stages:
-  - name: Review Delivery Docs
+  - name: Review Plan
     max_iterations: 3
     max_iterations_next_stage: Implement
     reset_iterations:
@@ -311,7 +337,7 @@ stages:
           next_stage: Implement
 ```
 
-When `Review Delivery Docs` completes successfully, the visit counters for `Review Code` and `Review Docs` are reset to `0`. The next visit to either stage logs iteration `1`, giving that stage a fresh `max_iterations` budget.
+When `Review Plan` completes successfully, the visit counters for `Review Code` and `Review Docs` are reset to `0`. The next visit to either stage logs iteration `1`, giving that stage a fresh `max_iterations` budget.
 
 **Validation rules:**
 - Entries must reference existing stage names (case-sensitive). Unknown targets are rejected at config time.
@@ -324,7 +350,7 @@ See the full reference in [Pipeline Authoring Guide](pipeline-authoring.md#reset
 
 ### Global Config: `stage_models`
 
-Add a top-level `stage_models` section in `~/.cybervisor/config.yaml` to override the agent tool model for specific stages. Keys are stage names (case-sensitive); values are model identifiers (e.g., `claude-sonnet-4-6`, `gemini-2.5-pro`). The verifier always uses the global `llm.model`.
+Add a top-level `stage_models` section in `~/.cybervisor/config.yaml` to override the agent tool model for specific stages. Keys are stage names (case-sensitive); values are model identifiers (e.g., `claude-sonnet-4-6`). The verifier always uses the global `llm.model`.
 
 ```yaml
 # ~/.cybervisor/config.yaml
@@ -355,24 +381,23 @@ disabled_skills:
 ```
 
 **Validation rules:**
-- Each entry must be a string matching the exact directory name installed under the agent's project-local skills directory (e.g., `.claude/skills/`, `.gemini/skills/`, `.agents/skills/`).
+- Each entry must be a string matching the exact directory name installed under the agent's project-local skills directory (e.g., `.claude/skills/`, `.agents/skills/`).
 - Entries must not contain `/` or `\` (path separators) and must not be `.` or `..` (directory traversal). Invalid entries cause cybervisor to exit with an error at startup.
 - Skill set names like `superpowers`, `speckit`, or `openspec` are not valid entries — use individual skill directory names instead.
 
 **Behavior:**
-- At pipeline start, `cybervisor` first restores any skills left behind by a previous unclean shutdown, then moves each listed skill from the project-local skills directory to `.cybervisor/backups/skills/<adapter>/` (where `<adapter>` is `claude`, `gemini`, or `codex`; `opencode` and `cursor` have no project-local skills directories and are skipped).
+- At pipeline start, `cybervisor` first restores any skills left behind by a previous unclean shutdown, then moves each listed skill from the project-local skills directory to `.cybervisor/backups/skills/<adapter>/` (where `<adapter>` is `claude` or `codex`; `opencode` and `cursor` have no project-local skills directories and are skipped).
 - After the pipeline finishes (success, failure, or interrupt), all moved skills are restored to their original locations.
-- Global skills directories (`~/.claude/skills/`, `~/.gemini/skills/`, etc.) are never touched.
+- Global skills directories (`~/.claude/skills/`, etc.) are never touched.
 - The default scaffolds (`simple` and `speckit`) include `disabled_skills` listing every individual skill directory name from the superpowers, speckit, and openspec skill sets.
 
 **Adapter directory mapping:**
 | Adapter | Project-local skills directory |
 |---------|-------------------------------|
 | `claude` | `.claude/skills/` |
-| `gemini` | `.gemini/skills/` |
 | `codex` | `.agents/skills/` |
 | `opencode` | None (OpenCode uses `.opencode/agents/` for its own agent definitions, which does not map to cybervisor's skills concept) |
-| `cursor` | None (Cursor has no project-local skills directory; all enforcement is at the ACP layer) |
+| `cursor` | None (Cursor has no project-local skills directory) |
 
 See the full reference in [Runtime and Daemon — User Guide](runtime-user.md#skill-disablerestore) for the skill disable/restore lifecycle.
 
@@ -382,7 +407,7 @@ Add a per-stage `read_only_paths` list in `cybervisor.yaml` to block write-tool 
 
 ```yaml
 stages:
-  - name: Design Delivery
+  - name: Plan
     read_only_paths:
       - "src/**"
       - "pyproject.toml"
@@ -390,16 +415,14 @@ stages:
     cleanup:
       - .cybervisor/artifacts
     max_retries: 5
-    next_stage: Review Delivery Docs
+    next_stage: Review Plan
 ```
 
 **Behavior:**
-  - When a stage has `read_only_paths` set, write protection is enforced per adapter: Claude Code uses a `PreToolUse` hook (blocks writes at launch time); Gemini and Cursor enforce it via post-hoc filesystem snapshots that detect and restore protected-file modifications after each turn; OpenCode uses native permission deny rules in `OPENCODE_CONFIG_CONTENT`; Codex app-server snapshots matching files, restores protected changes after each turn, and fails the attempt; Antigravity uses SDK capabilities where supported and post-hoc `ACPReadOnlySnapshot` enforcement that detects and restores protected-file modifications after the agent run.
-- Write tools (`Write`, `Edit`, `NotebookEdit`) extract the target file path and check it against all patterns.
-- Bash tool calls are inspected for file-write patterns (`>`, `>>`, `sed -i`, `tee`). If a write pattern targets a read-only path, the call is blocked. This is conservative — false positives are accepted over missed writes.
-- Read tools (`Read`, `Glob`, `Grep`, etc.) are always allowed and are not included in the hook matcher, so the hook is never invoked for them.
-- When `read_only_paths` is empty or absent for a stage, no tool-use hook is installed for that stage, avoiding overhead on every tool call.
-- The tool-use hook is installed per-stage: stages with `read_only_paths` get write protection; stages without it run without the hook.
+  - When a stage has `read_only_paths` set, write protection is enforced per adapter: Claude uses post-hoc filesystem snapshots that detect and restore protected-file modifications after each stage; Cursor uses snapshot-only post-hoc enforcement after each SDK turn; OpenCode uses native permission deny rules in `OPENCODE_CONFIG_CONTENT`; Codex app-server snapshots matching files, restores protected changes after each turn, and fails the attempt; Antigravity uses SDK capabilities where supported and post-hoc snapshot enforcement after the agent run.
+- Each adapter enforces read-only protection through its own mechanism (post-hoc filesystem snapshots, native permission deny rules, or app-server interception — see the per-adapter list above). Enforcement details are adapter-specific and not a shared hook layer.
+- When `read_only_paths` is empty or absent for a stage, no adapter-level read-only enforcement is active for that stage.
+- Adapter-level read-only enforcement is per-stage: stages with `read_only_paths` get write protection; stages without it run without enforcement.
 - When `read_only_paths` is non-empty, the pipeline runner also appends a read-only-paths section to the stage prompt listing each pattern and instructing the agent not to modify matching files. This reduces wasted tool-call budget on writes that would be blocked anyway. The section appears after the injection appendix (if any) and before contract guidance.
 - The `Stop` / `AfterAgent` verifier hook continues to work independently.
 

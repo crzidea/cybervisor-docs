@@ -6,7 +6,7 @@ title: OpenCode Agent Guide
 
 > **Audience: Users** — Operators configuring or troubleshooting the OpenCode agent adapter.
 
-The OpenCode adapter enables `cybervisor` to use the OpenCode CLI as a pipeline agent. Unlike standard stdio/JSON-RPC adapters, it communicates over loopback HTTP via `opencode serve`. Each pipeline stage starts an isolated serve instance on an allocated port, runs a session, and shuts the server down upon completion.
+The OpenCode adapter enables `cybervisor` to use the OpenCode CLI as a pipeline agent. Unlike standard stdio/JSON-RPC adapters, it communicates over loopback HTTP via `opencode serve`. Each pipeline stage starts an isolated serve instance on an allocated port, runs a session, and shuts the server down upon completion. On retry, the adapter reuses the existing serve process and session instead of starting a new one, sending a continuation prompt that tells the agent to address the failure without restarting completed work.
 
 ---
 
@@ -16,6 +16,7 @@ The OpenCode adapter enables `cybervisor` to use the OpenCode CLI as a pipeline 
 - Requires the `opencode` CLI on `PATH`.
 - Serve mode must be supported (`opencode serve` must be available, requiring OpenCode v0.12.0 or later).
 - CLI check command: `opencode serve --help` (should exit with code 0).
+- Requires `uvx` on `PATH` (bundled with `uv`) for the yieldshell MCP server. If `uvx` cannot resolve `mcp-yieldshell`, the agent will have no shell tool available.
 
 ### Model Configuration and Overrides
 - **Custom Stage Model:** If `stage_models` overrides the model for an OpenCode stage, the adapter injects it through the `OPENCODE_CONFIG_CONTENT` environment variable.
@@ -37,6 +38,20 @@ To ensure the agent only receives context explicitly passed by the pipeline prom
 
 ---
 
+## Stream Output
+
+### Reasoning event handling
+OpenCode emits `part: reasoning` events during its internal chain-of-thought. Cybervisor suppresses these from stderr rendering — you will not see duplicate `part: reasoning` log lines. When reasoning text contains useful content, it is converted to a single `thinking:` event (not `reply:`, since reasoning is internal model reasoning, not a visible response). See [Runtime and Daemon (User Guide)](../runtime-user.md#live-stderr-output) for the full log format reference.
+
+### Heartbeat and metadata event handling
+OpenCode serve emits `server.heartbeat` events on a regular interval and lifecycle events such as `message.updated` and `session.updated`. Every SSE event — including heartbeats and metadata — resets the message-idle activity timer. The timer detects server silence (a fully dead stream), not model progress. If all SSE events stop for the configured idle window (default 600 seconds, override via `CYBUPERVISOR_OPENCODE_IDLE_TIMEOUT`), the session is aborted and the stage attempt fails with an `idle_timeout_failed` event. The pipeline's normal retry-continuation policy then decides what happens next.
+
+The adapter sends no timeout recovery prompt and performs no force-stop loop. A clean stream EOF (consumer thread exits without error) is treated identically to a silent timeout. SSE transport errors (peer close, connection reset) are detected promptly and handled distinctly from idle timeouts — the adapter attempts one reconnect before failing.
+
+All events are still written to the per-stage JSON log under `.cybervisor/logs/stages/` so a reviewer can diagnose the last known adapter state.
+
+---
+
 ## Troubleshooting
 
 ### OpenCode serve mode not available
@@ -53,10 +68,14 @@ Cybervisor never writes or updates `opencode.json` inside the workspace; all ove
 ### OpenCode serve session hangs or times out
 - **Server Startup:** The adapter polls `/global/health` for 30 seconds after launching the serve process. If the server fails to become healthy, a clear error is raised. Subprocess crashes during initialization are caught immediately (the adapter exits with the crash code rather than waiting for the timeout).
 - **Dead Processes:** Crashes between turns within an active session are caught immediately to fail the turn fast.
-- **Long-running Commands:** Cybervisor injects long-bash mitigation instructions into the session. This directs the agent to run long-running shell tasks (over 60 seconds) in the background with output redirection and PID tracking. If a message timeout (600 seconds) still occurs, the error message includes the active terminal and bash context. Check `.cybervisor/logs/stages/` for a `long_bash_mitigation` entry to verify injection.
+- **Long-running Commands:** Cybervisor disables the built-in `bash` tool and replaces it with the `yieldshell` MCP server, which provides managed-process tools (`yieldshell_exec`, `yieldshell_ps`, `yieldshell_read`, `yieldshell_stop`, `yieldshell_wait`, `yieldshell_write`). These tools let the agent start background commands, poll status, capture output, and terminate processes without blocking the session. While `POST /session/:id/message` is in flight, every SSE event resets the idle timeout. If all events stop for the configured window, the attempt fails.
+- **Idle Timeout Failure:** If no SSE activity arrives for the full idle window, the adapter aborts the session and fails the stage attempt with an `idle_timeout_failed` event and a clear duration-bearing error. No recovery prompt is sent and no force-stop loop runs. The pipeline's normal retry-continuation policy decides what happens next.
+- **Silent SSE Stream Termination:** If the `/event` SSE connection ends cleanly (EOF) without an exception, the consumer thread exits without recording an error. The adapter detects the dead consumer on every poll interval and routes the silent EOF through the idle-timeout failure path.
+- **SSE Transport Error (real network/protocol failure):** If the `/event` stream raises a real transport error (peer close, read failure, protocol error) while the message request is in flight, the adapter detects it on the next poll interval and logs a distinct `sse_transport_error` entry. It then attempts to reconnect the event stream before failing, so a transient transport blip does not abort work in progress. If reconnection fails, the stage errors immediately with the SSE cause.
+- **SSE Stream Reconnection:** The adapter checks whether the SSE consumer thread is still alive during transport errors. If the stream broke, the adapter reconnects the consumer to the `/event` endpoint. If reconnection also fails, the stage fails immediately with a clear error.
 
 ### OpenCode serve permissions
-OpenCode does not support ACP `session/set_mode` or `session/request_permission`. Since permissions are fully enforced via native deny rules in `OPENCODE_CONFIG_CONTENT`, you will not see the Cursor-style "proactive enforcement may not be active" warning logs.
+OpenCode enforces permissions through native deny rules in `OPENCODE_CONFIG_CONTENT`; it does not use protocol session modes or permission callbacks.
 
 ### WARNING: "model override may not have been applied"
 You may see a WARNING log like:
@@ -65,3 +84,38 @@ OpenCode active model 'big-pickle' differs from requested model 'claude-sonnet-4
 ```
 - **Cause:** The adapter requested a model override, but the serve session reported a different active model. This is due to known upstream bugs in OpenCode (#13644, #21556, #18620) where model selection is silently ignored.
 - **Resolution:** No local configuration can force OpenCode to apply the model override. The stage will run with OpenCode's active model.
+
+---
+
+## Retry Continuation
+
+When a stage fails and Cybervisor retries it, the OpenCode adapter reuses the existing serve process and session instead of starting fresh. This preserves the agent's prior context so it can correct the failure without restarting completed work.
+
+### How it works
+1. On the first attempt, the adapter starts a new `opencode serve` process and creates a session.
+2. If the attempt fails, the adapter keeps the serve process and session alive instead of shutting them down.
+3. On retry, Cybervisor sends a continuation prompt to the existing session via the serve HTTP API. The session ID from the failed attempt is reused.
+4. If the serve process has crashed or the session is unavailable, the adapter falls back to a fresh start and logs the reason.
+
+### Fallback to fresh retry
+You may see a warning log like:
+```
+[Implement][opencode] retry continuation unavailable (serve_process_exited_with_code_1); falling back to fresh start
+```
+- **Cause:** The `opencode serve` process from the previous attempt is no longer running or the session is unavailable.
+- **Resolution:** No action needed — Cybervisor automatically starts a new serve process and session. The retry still counts toward `max_retries`.
+
+The `<fallback_reason>` is one of:
+- `serve_process_exited_with_code_<n>` — the prior serve subprocess has exited (the exit code is appended to the reason).
+- `serve_health_check_failed` — the serve process is still alive but its `/global/health` endpoint did not respond.
+
+### Distinguishing retry modes in logs
+- **`fresh`**: First attempt or adapter does not support continuation.
+- **`continued`**: Retry reuses a prior session.
+- **`fallback`**: Adapter supports continuation, but the prior session was unavailable; a fresh session was started instead.
+
+---
+
+## Explicit `--resume` After a Previous Run
+
+OpenCode is the only supported adapter that can resume a persisted session across separate invocations, so the explicit `--resume` flow (combined with `--start-from`) is OpenCode-specific. When the persisted session id from `.cybervisor/latest-session.json` is matched but the live `opencode serve` instance is no longer reachable, the stage starts fresh and logs a `SessionResumeFallback` entry with `fallback_reason: persisted_continuation_unavailable`. The original persisted metadata is preserved so a later `--resume` attempt still points at the original session id. See [Resumed Stage Continuation (User Guide)](../runtime-user.md#resumed-stage-continuation) for the full flow, match checks, and `latest-session.json` write semantics.

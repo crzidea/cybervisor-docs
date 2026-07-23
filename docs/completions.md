@@ -23,8 +23,8 @@ If cybervisor is already installed without the extra, reinstall with `uv tool in
 
 When runtime data is available, the argcomplete integration completes:
 
-- **Agent tools** (`cybervisor use <TAB>`) — lists adapter registry names (e.g., `claude`, `gemini`, `mock`, `codex`)
-- **Stage names** (`--start-stage`, `--end-after`, `--end-before`) — reads stage names from `cybervisor.yaml` in the current directory
+- **Agent tools** (`cybervisor use <TAB>`) — lists adapter registry names (e.g., `claude`, `mock`, `codex`)
+- **Stage names** (`--start-from`, `--end-after`, `--end-before`) — reads stage names from `cybervisor.yaml` in the current directory
 - **Document IDs** (`cybervisor docs <TAB>`) — lists available document identifiers
 
 When runtime data is unavailable (no `cybervisor.yaml` in cwd, or missing config), dynamic completers return no suggestions rather than erroring.

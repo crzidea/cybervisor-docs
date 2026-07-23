@@ -39,7 +39,8 @@ Every message includes:
   "start_stage": null,
   "end_stage": null,
   "end_before": null,
-  "task_id": "550e8400-e29b-41d4-a716-446655440000"
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "resume_last_session": false
 }
 ```
 
@@ -52,6 +53,7 @@ Every message includes:
 | `end_stage` | No | Non-empty stage name to stop after; the named stage is executed, then the pipeline stops; must match a stage name in the resolved config; mutually exclusive with `end_before`; updatable mid-run via `set_stop_stage` |
 | `end_before` | No | Non-empty stage name to stop before; must match a stage name in the resolved config; mutually exclusive with `end_stage` |
 | `task_id` | Yes | Non-empty client-generated UUID for this task |
+| `resume_last_session` | No | Boolean (default `false`). When `true`, the pipeline attempts to continue from the last captured agent session at `start_stage` (requires `start_stage` to also be set). If metadata is absent, mismatched, or the adapter does not support continuation, the stage starts fresh with a logged fallback reason. |
 
 Malformed `run` messages are rejected with an `error` event using code `invalid_message`; the daemon does not synthesize missing required fields. Config selection is limited to files inside the current workspace so the daemon stays aligned with the documented local workflow. Stage names in `start_stage`, `end_stage`, and `end_before` are validated against the stages defined in the resolved config; unknown names result in `invalid_message`. Supplying both `end_stage` and `end_before` results in `mutually_exclusive_end_stage`.
 
@@ -155,9 +157,12 @@ Client may send `ping` at any time. Server responds with `pong`.
   "task_id": "550e8400-e29b-41d4-a716-446655440000",
   "stage_name": "Spec",
   "attempt": 1,
+  "retry_mode": "fresh",
   "timestamp": "2026-04-02T12:00:01.000Z"
 }
 ```
+
+`retry_mode` is optional. Values: `fresh` (first attempt or unsupported adapter), `continued` (resumed session), `fallback` (continuation attempted but unavailable). When `retry_mode` is `fallback`, an optional `fallback_reason` string is also included (e.g., `"no_prior_session_id"`).
 
 ### `stage_complete` — Stage Finished
 
@@ -181,10 +186,13 @@ Client may send `ping` at any time. Server responds with `pong`.
   "stage_name": "Spec",
   "attempt": 2,
   "max_retries": 3,
+  "retry_mode": "continued",
   "error": "Agent exited with code 1",
   "timestamp": "2026-04-02T12:00:05.000Z"
 }
 ```
+
+`retry_mode` is optional. Values: `fresh` (unsupported adapter, starting new session), `continued` (resumed session via adapter-native mechanism), `fallback` (continuation attempted but unavailable). When `retry_mode` is `fallback`, an optional `fallback_reason` string is also included (e.g., `"adapter_does_not_support_continuation"` or `"no_prior_session_id"`).
 
 ### `stage_failed` — Stage Exhausted Retries
 

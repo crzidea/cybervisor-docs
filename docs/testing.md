@@ -31,9 +31,10 @@ That script:
 ## Mock Adapter (`agent_tool: mock`)
 
 When `agent_tool: mock` is set in `cybervisor.yaml` or `~/.cybervisor/config.yaml`, the pipeline uses the built-in mock adapter instead of launching an external agent tool. The adapter completes every stage with a zero-exit process and:
-- Emits contract artifacts for stages that have a contract with field-injection routes (e.g. `Review Delivery Docs`, `Review Code`, `Verify`). The status value is the first route key from the loaded config.
-- Does **not** emit contract artifacts for routing-only stages — stages whose contracts redirect to another stage without injecting fields (e.g. `Review Docs`).
-- Does **not** generate design artifacts (spec.md, plan.md, tasks.md). Design artifacts must be provided externally — e.g., pre-written by the smoke test script or seeded in test fixtures. On the `Design Delivery` stage the adapter is a pass-through; contract artifacts are still emitted for downstream stages.
+- Emits contract artifacts for stages that have a contract with field-injection routes (e.g. `Review Plan`, `Review Code`). The status value is the first route key from the loaded config.
+- Also emits contract artifacts for stages with `contract.required_tasks` even when routes have no injections, because `required_tasks` enforcement needs the artifact.
+- Does **not** emit contract artifacts for routing-only stages — stages whose routes all redirect to other stages without injected fields and without `required_tasks`.
+- Does **not** generate planning artifacts (spec.md, plan.md, tasks.md). Planning artifacts must be provided externally — e.g., pre-written by the smoke test script or seeded in test fixtures. On the `Plan` stage the adapter is a pass-through; contract artifacts are still emitted for downstream stages.
 - Falls back gracefully when `cybervisor.yaml` is absent or malformed, skipping contract artifact emission rather than raising.
 
 ---
@@ -62,6 +63,15 @@ cybervisor sandbox --name my-sandbox
 
 # Skip auto-pull, use cached image
 cybervisor sandbox --no-pull
+
+# Mount additional host paths into the sandbox
+cybervisor sandbox --mount /data/project
+cybervisor sandbox --mount /data/project:/mnt/project:ro
+cybervisor sandbox --mount /data:/data:ro --mount /tmp/cache:/cache
+
+# Add supplementary groups (e.g., Docker socket group)
+cybervisor sandbox --group-add docker
+cybervisor sandbox --group-add 123 --group-add users
 ```
 
 ### Options
@@ -74,6 +84,8 @@ cybervisor sandbox --no-pull
 | `--image` | `ghcr.io/crzidea/cybervisor:latest` | Docker image to use (pulled automatically on each run unless `--no-pull` is passed) |
 | `--no-pull` | `false` | Skip automatic image pull; use local image as-is |
 | `--name` | `cybervisor-sandbox-<hash>` | Container name (auto-generated from cwd hash if omitted) |
+| `--mount MOUNT_SPEC` | None | Extra Docker volume mount; repeatable. Supports `HOST`, `HOST:CONTAINER`, and `HOST:CONTAINER:ro|rw` |
+| `--group-add GROUP` | None | Docker supplementary group to add inside the container; repeatable. Group names or numeric IDs are passed verbatim to Docker |
 
 ### Image Pull Behavior
 By default, `cybervisor sandbox` pulls the image from the registry before starting the container. This ensures the running container matches the latest published version.
@@ -97,7 +109,7 @@ The **daemon** line shows the version running inside the container. Both lines s
 The container uses `--network=host`, sharing the host's network stack directly. The `--host` and `--port` flags are passed through to `cybervisor serve` inside the container, so the daemon binds to the specified address and port without Docker port mapping. This means the container can reach all external services the host can (package registries, API endpoints, git remotes).
 
 ### Volume Mounts
-Host directories are mounted to the same absolute path inside the container, so tools like Claude, Codex, Cursor, OpenCode, and Gemini find their config at the expected `~/.claude/`, `~/.codex/`, `~/.cursor/`, `~/.opencode/`, `~/.gemini/`, etc.
+Host directories are mounted to the same absolute path inside the container, so tools like Claude, Codex, Cursor, and OpenCode find their config at the expected `~/.claude/`, `~/.codex/`, `~/.cursor/`, `~/.opencode/`, etc.
 
 | Host Path | Container Path | Condition |
 |-----------|---------------|-----------|
@@ -108,11 +120,31 @@ Host directories are mounted to the same absolute path inside the container, so 
 
 The home directory mount covers `~/.cybervisor`, `~/.claude.json`, and agent credential directories.
 
+Use `--mount` to add more host paths. If only `HOST` is provided, cybervisor mounts it at the same absolute path inside the container. If the mode is omitted, Docker uses a read-write mount. The host path must already exist; cybervisor validates this before running the container so Docker does not silently create a missing directory.
+
+### Supplementary Groups (`--group-add`)
+
+Use `--group-add` one or more times to add supplementary Linux groups inside the sandbox container. Each value is passed verbatim to Docker's `--group-add` flag.
+
+**Docker socket use case.** A common scenario is mounting the host Docker socket and granting the container process membership in the socket's group:
+
+```bash
+# Find the Docker socket group ID on the host
+DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+
+# Grant access inside the sandbox
+cybervisor sandbox --mount /var/run/docker.sock:/var/run/docker.sock --group-add "$DOCKER_GID"
+```
+
+> **Security note:** Passing the Docker socket group expands host-level trust. Processes inside the container can control the host Docker daemon, which effectively grants root-equivalent access on the host. Only use this in environments where you accept that trust boundary expansion.
+
+**Prefer numeric group IDs.** Use numeric IDs rather than group names whenever the group may not exist inside the container image. A group name like `docker` is only resolved if it exists in the container's `/etc/group`. Numeric IDs work regardless of the image's group database.
+
 ### Environment Variables
 - `HOST_HOME` is set inside the container to the host user's home directory.
 - `HOME` is set to the same path as the host home directory inside the container.
 - `PYTHONNOUSERSITE=1` is set inside the container to prevent the host's `site.USER_SITE` directory from shadowing the container's own package metadata.
-- API key environment variables (`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `CYBERVISOR_LLM_*`) are forwarded if set on the host.
+- API key environment variables (`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `CYBERVISOR_LLM_*`) are forwarded if set on the host.
 
 ### Lifecycle
 - **Foreground mode** (default): Container runs attached to the terminal. `--rm` is passed so the container is auto-removed on exit. Pressing Ctrl+C sends SIGTERM to the container for graceful shutdown.

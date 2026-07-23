@@ -63,3 +63,9 @@ If the adapter reports that authentication is missing or expired:
   python -c "import google.auth; print(google.auth.default())"
   ```
 - **Note:** Direct browser login for a consumer account (`gcloud auth login`) will not work for SDK authentication.
+
+---
+
+## Cancellation
+
+The Antigravity adapter runs in-process via a background thread. When you run `cybervisor cancel`, the daemon sets a cooperative stop event that the SDK thread checks between iterations, then joins the thread. The task stops promptly — the SDK thread does not continue after cancellation.

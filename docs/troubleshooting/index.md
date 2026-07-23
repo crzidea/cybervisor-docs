@@ -26,7 +26,6 @@ This section provides troubleshooting guides for `cybervisor`. Choose a category
 If you are encountering issues specific to a coding-agent tool or SDK, refer to its dedicated guide:
 
 - **[Claude Code Agent Guide](/agents/claude.html)**
-- **[Gemini Agent Guide](/agents/gemini.html)**
 - **[Cursor Agent Guide](/agents/cursor.html)**
 - **[OpenCode Agent Guide](/agents/opencode.html)**
 - **[Antigravity Agent Guide](/agents/antigravity.html)**

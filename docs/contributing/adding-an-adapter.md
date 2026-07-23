@@ -21,13 +21,17 @@ Shared `cybervisor` orchestration owns:
 Each adapter owns:
 
 - canonical adapter identity and discovery metadata
-- stage launch command construction and process startup behavior
-- preflight requirements for binaries and global config prerequisites
+- stage launch and process or worker startup behavior
+- preflight requirements for binaries, SDK packages, and global config prerequisites
 - conversion from raw tool output into cybervisor's canonical event model
 - hook settings install/remove behavior for tool-specific settings files
 - wiring the tool's native hook system to the packaged `cybervisor-agent-hook` entry point without changing the socket event schema
 
-ACP adapters should reuse `cybervisor.adapters.acp` for common stdio startup, PATH preflight messages, no-op native hook settings, `session/request_permission` decisions, `ACPReadOnlySnapshot` (for post-hoc read-only path enforcement), JSON-RPC helpers, `extra_env` (for injecting environment variables into the subprocess), and post-reply verifier evaluation. `ACPAdapterBase.extra_env` is a `ClassVar[dict[str, str]]` that subclasses can override to merge custom variables into the subprocess environment — the base `start()` method builds `env = {**os.environ, **self.extra_env}` and passes `env=` to `subprocess.Popen`. The default is `{}`; adapters that need custom environment variables (e.g., feature flags, API endpoint overrides) should set this class variable rather than patching `os.environ`. Adapter-owned ACP code should be limited to protocol method names, authentication/session lifecycle differences, notification parsing, and any agent-specific turn-loop behavior.
+Protocol adapters should reuse the matching shared transport helpers for process
+startup, termination, event conversion, and post-reply verification. In-process
+SDK adapters should isolate proprietary imports behind a testable seam, run
+blocking APIs outside the pipeline thread, and expose events through a
+thread-safe queue.
 
 All ACP adapter transports must call `terminate_process` (from `cybervisor.adapters._process`) in two places:
 
@@ -42,7 +46,36 @@ Every adapter must provide:
 - `start(request)` returning a normalized running-process handle
 - `parse_output_line(line)` returning canonical event(s) for shared rendering
 - `preflight_requirements()` describing required binaries and env vars
-- `settings_path()`, `install_hook_settings()`, and `remove_hook_settings()` if `supports_hooks=True` and `requires_native_hook_settings()=True` (ACP adapters like Gemini and Cursor return `requires_native_hook_settings()=False`; OpenCode returns `requires_native_hook_settings()=False` and `uses_hook_listener()=False`; in-process SDK adapters like Antigravity return `requires_native_hook_settings()=False`, `uses_hook_listener()=False`, and `settings_path()` returns `None` — the SDK is a standard Cybervisor dependency, not an optional install)
+- `settings_path()`, `install_hook_settings()`, and `remove_hook_settings()` if `supports_hooks=True` and `requires_native_hook_settings()=True`; in-process SDK adapters such as Cursor and Antigravity return `False` and use no settings path
+
+### Retry Continuation Support
+
+Adapters that can resume a previous agent session on retry should set `supports_retry_continuation: True` in `AdapterCapabilities` and return a `session_id` from the running-process handle after each attempt. When a retry occurs and the adapter supports continuation, the pipeline runner passes the captured session ID through `LaunchRequest.retry_session_id` and a generated continuation prompt through `LaunchRequest.continuation_prompt`.
+
+The adapter is responsible for:
+- capturing a session ID (or equivalent handle) from the running process and exposing it so the runner can persist it
+- using `retry_session_id` to resume the prior session via the adapter's native mechanism (e.g., ACP `session/load`)
+- using `continuation_prompt` instead of the original prompt when resuming successfully, so the agent knows to continue rather than restart
+- falling back to a fresh session (ignoring `retry_session_id`) if the resume mechanism fails before the turn starts
+
+Adapters that do not support session resumption leave `supports_retry_continuation` at its default (`False`). The runner then uses the existing fresh-retry path with no session ID or continuation prompt.
+
+### Adapter-Owned Hook Decision Formatting
+
+Adapters must provide their own formatting for hook decisions and tool-use permissions instead of relying on global agent-name conditionals. Each adapter implements the following methods:
+
+| Method | Description |
+|--------|-------------|
+| `format_tool_use_allow()` | Return an allow decision in the adapter-specific output format |
+| `format_tool_use_block(reason)` | Return a block/deny decision with the given reason |
+| `format_hook_output(decision)` | Convert a `HookDecision` to adapter-specific output |
+| `make_contract_blocking_decision(message)` | Create a `HookDecision` for contract validation failures |
+| `make_blocking_decision(reason)` | Create a `HookDecision` for verifier-unavailable fallback |
+| `extract_verifier_response(output, *, stage_prompt, payload)` | Extract the final response text from raw agent output for verifier evaluation |
+
+The base adapter provides generic defaults suitable for most agents (returning `{"decision": "allow"}` and `{"decision": "deny", ...}`). Adapters with native hook formats (e.g., Claude's `hookSpecificOutput`) override these methods with their own format-specific payloads.
+
+The hook runtime reaches the selected adapter through the shared adapter registry (`get_adapter(agent_tool)`) and calls these methods rather than branching on concrete agent names. This keeps global pipeline code agent-neutral and makes new adapters easier to add.
 
 ## Canonical Event Model Contract
 
@@ -61,13 +94,14 @@ The canonical model, not Claude Code raw JSON, is the adapter boundary. Current 
 
 This means:
 
-- the Claude adapter converts Claude Code `stream-json` lines into canonical events
-- ACP adapters (Gemini, Codex, Cursor) convert ACP `session/update` notifications into the same canonical events; OpenCode converts serve HTTP events into canonical events; in-process SDK adapters (Antigravity) bridge SDK streaming callbacks to canonical events via a thread-safe queue
+- the Claude adapter converts `claude-agent-sdk` message objects (text blocks, tool-use blocks, thinking blocks, result messages) into canonical events via the SDK handle
+- protocol adapters convert transport notifications into canonical events; OpenCode converts serve HTTP events; in-process SDK adapters such as Cursor and Antigravity bridge SDK messages through a thread-safe queue
 - shared rendering keeps the user-facing stderr vocabulary stable across adapters
 
-For ACP adapters specifically, maintain the notification parser against captured real ACP session output. Do not assume notification shapes are identical across agents.
-Gemini and Cursor share ACP permission and verifier evaluation helpers, but each keeps its own notification parser because real `session/update` payloads differ by agent. OpenCode uses serve-mode HTTP and has its own event parser.
-Tool-call notifications must resolve to the same canonical tool names and normalized argument keys as other ACP agents. Put agent-specific kind, title, content-type, and field-alias mappings in that adapter's own `tool_mapping.py`, and reuse the generic `cybervisor.adapters.acp.stream` helpers to apply them so stderr summaries stay uniform; do not hand-format `tool call:` lines in adapter code or fork the shared renderers for one agent.
+Maintain each parser against captured output from its real transport or SDK. Tool
+calls must resolve to shared formatter names and normalized argument keys. Put
+agent-specific names and field aliases in the adapter's `tool_mapping.py`; do
+not hand-format stream output or fork the shared renderer.
 
 ## Hook Wiring Contract
 
@@ -75,7 +109,10 @@ Hook-capable adapters that use native settings patching (`requires_native_hook_s
 
 - `uv run cybervisor-agent-hook --config <absolute path to .cybervisor/hooks/hook_config.json>`
 
-Currently only the Claude adapter uses native settings patching. ACP adapters (Gemini, Codex, Cursor) have `requires_native_hook_settings()=False` and handle contract enforcement and verifier decisions via `evaluate_reply()` inline in the adapter turn loop, not through the hook listener subprocess. OpenCode also has `requires_native_hook_settings()=False` and `uses_hook_listener()=False`, delegating evaluation to the shared `evaluate_acp_reply` function.
+No current built-in adapter uses native settings patching. Cursor, Claude, and
+Antigravity use in-process SDKs with no settings path. Cursor handles contract
+and verifier decisions in its same-session turn loop. OpenCode also avoids the
+hook listener and delegates evaluation to the shared evaluator.
 
 Adapter-owned hook behavior for settings-patching adapters is limited to:
 
@@ -105,7 +142,7 @@ Required top-level fields for emitted events:
 - `timestamp`: UTC ISO-8601 string
 - `event`: stable event name
 - `message`: short human-readable summary
-- `agent_tool`: canonical adapter name such as `gemini` or `claude`
+- `agent_tool`: canonical adapter name such as `claude` or `cursor`
 - `pid`: hook process pid
 - `config_path`: absolute path to the hook runtime config used for the event
 
@@ -160,7 +197,10 @@ Before an adapter is considered complete:
 - verify adapter-owned raw-log conversion produces canonical events rather than final strings
 - confirm hook install/remove matches the tool settings structure without moving shared autonomy rules
 - confirm hook-capable adapters preserve the shared Unix-socket event schema and decision semantics
-- for ACP adapters, integrate `ACPReadOnlySnapshot` into the transport's turn loop (snapshot before first turn, validate/restore after each turn) so `read_only_paths` is enforced even though the agent never emits `session/request_permission` for file writes; OpenCode uses native permission deny rules in `OPENCODE_CONFIG_CONTENT` instead of `ACPReadOnlySnapshot`; in-process SDK adapters (Antigravity) pass capabilities to the SDK config when supported and use `ACPReadOnlySnapshot` for post-hoc validation/restore after the agent run completes
+- choose and document each adapter's read-only enforcement model
+- use the shared snapshot utility before and after Cursor SDK turns
+- reuse `ACPReadOnlySnapshot` rather than creating an adapter-local snapshot class
+- use native deny rules for OpenCode and supported SDK capabilities plus post-hoc snapshots for Antigravity
 - run `uv run pytest`
 - run `uv run mypy --strict src/`
 - run `uv run ruff check src/`

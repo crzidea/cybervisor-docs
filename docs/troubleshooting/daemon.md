@@ -64,9 +64,9 @@ uv tool upgrade cybervisor
 
 ### Agent subprocess hangs
 
-- **ACP adapters (Gemini, Cursor)** terminate their subprocess with bounded timeouts: close stdin, wait up to 5 seconds for a graceful exit, then SIGTERM (2-second wait), then SIGKILL (5-second wait). Under normal conditions the subprocess exits within the graceful window after `session/close`.
 - **OpenCode serve** starts an isolated `opencode serve` process per stage. Cybervisor shuts it down via `POST /instance/dispose` when available, otherwise with the same `terminate_process()` sequence (SIGTERM, then SIGKILL). Startup failures and cancellations also terminate the serve process group.
 - **Codex** uses the app-server subprocess with the same bounded termination sequence.
+- **In-process adapters (Claude, Cursor, Antigravity)** use cooperative cancellation. Cursor also requests cancellation through the SDK. The daemon then joins the worker with a bounded timeout and proceeds if it does not exit.
 - If any agent subprocess persists beyond 12 seconds after stage completion, the pipeline-level process sweep should still catch it.
 
 ### Agent-spawned processes remain after pipeline finishes

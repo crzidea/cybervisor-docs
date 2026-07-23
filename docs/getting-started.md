@@ -30,7 +30,7 @@ cybervisor --version
 
 ## 2. Choose Your Agent
 
-Set the default agent tool. Options are `claude`, `gemini`, `codex`, `opencode`, `cursor`, `antigravity`, or `mock`:
+Set the default agent tool. Options are `claude`, `codex`, `opencode`, `cursor`, `antigravity`, or `mock`:
 
 ```bash
 cybervisor use claude
@@ -46,7 +46,7 @@ cybervisor use mock
 
 ## 3. Configure Verifier Credentials (Non-Mock)
 
-Mock mode needs no credentials. For real agents, create `~/.cybervisor/config.yaml`:
+Mock mode needs no credentials. For real agents, the `llm.api_key` field in `~/.cybervisor/config.yaml` is only required when at least one effective stage that uses model-assisted stop verification (a non-contract stage) is assigned to a non-mock adapter. Contract-enabled stages validate their result artifacts locally and do not invoke the verifier, so a contract-only stage slice can run without `llm.api_key`. The selected agent may still need its own credentials — `llm.api_key` is a separate verifier setting, not an agent credential.
 
 ```bash
 mkdir -p ~/.cybervisor
@@ -92,11 +92,11 @@ To use a different agent tool for a specific stage, add a top-level `stage_agent
 # ~/.cybervisor/config.yaml
 agent_tool: claude
 stage_agents:
-  "Design Delivery": gemini
-  "Review Delivery Docs": gemini
+  "Plan": codex
+  "Review Plan": codex
 ```
 
-Each key is a stage name (case-sensitive, matching `cybervisor.yaml`); the value is the agent tool to use for that stage. Values must match a supported agent name (`claude`, `gemini`, `codex`, `opencode`, `cursor`, `antigravity`, `mock`). Stages not listed fall back to the global `agent_tool`. See [Configuration Reference — Global Config: stage_agents](configuration.md#stage-agents) for full details.
+Each key is a stage name (case-sensitive, matching `cybervisor.yaml`); the value is the agent tool to use for that stage. Values must match a supported agent name (`claude`, `codex`, `opencode`, `cursor`, `antigravity`, `mock`). Stages not listed fall back to the global `agent_tool`. See [Configuration Reference — Global Config: stage_agents](configuration.md#stage-agents) for full details.
 
 ---
 
@@ -111,7 +111,7 @@ cybervisor init
 `cybervisor init` detects your environment:
 
 - If `.specify/` exists, it installs the **speckit** scaffold — a 10-stage pipeline integrated with speckit workflows (specification discovery, plan/task management, and structured review loops).
-- Otherwise, it installs the **simple** scaffold — a 6-stage standalone pipeline (Design Delivery, Review Delivery Docs, Implement, Review Code, Review Docs, Verify) that writes artifacts directly to `.cybervisor/artifacts/` without speckit dependencies.
+- Otherwise, it installs the **simple** scaffold — a 6-stage standalone pipeline (Plan, Review Plan, Implement, Review Code, Review Docs, Verify) that writes artifacts directly to `.cybervisor/artifacts/` without speckit dependencies.
 
 Both create a `cybervisor.yaml` with the full pipeline configuration.
 
@@ -121,7 +121,27 @@ The `mock` agent (`cybervisor use mock`) requires no external binary or API key.
 
 ### The `cursor` Agent
 
-The `cursor` agent requires the `cursor-agent` CLI on `PATH` with ACP mode support (`cursor-agent acp` must be available). Before running a pipeline, authenticate by setting `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN` in the environment, or by running `cursor login`. See [Configuration Reference — Cursor Notes](configuration.md#cursor-notes) for full setup details.
+The `cursor` agent uses the `cursor-sdk>=1.0.24` Python package, included as a
+Cybervisor dependency, and requires `cursor-sdk-bridge` on `PATH`. Configure
+authentication only through the active Cybervisor config:
+
+```bash
+uv tool install "cursor-sdk>=1.0.24"
+```
+
+```yaml
+agents:
+  cursor:
+    api_key: your-cursor-api-key
+```
+
+Environment variables and Cursor CLI login state are not used. Run
+`cybervisor doctor` to verify the SDK, bridge, and API key. See the
+[Cursor Agent Guide](/agents/cursor.html) for complete setup details.
+
+### The `claude` Agent
+
+The `claude` agent uses the `claude-agent-sdk` Python SDK and runs in-process (no CLI binary needed). The SDK is included as a standard Cybervisor dependency — no separate install is required. Authentication requires a supported provider credential such as `ANTHROPIC_API_KEY`. Run `cybervisor doctor` to verify the adapter reports ready. See [Claude Code Agent Guide](/agents/claude.html) for full setup details.
 
 ### The `antigravity` Agent
 
@@ -196,13 +216,25 @@ ls .cybervisor/contracts/artifacts/
 
 ---
 
-## 8. Resume or Cancel
+## 8. Restart or Cancel
 
-If you interrupt a run with Ctrl-C, cybervisor cleans up settings and skills automatically. To resume from a specific stage later:
+If you interrupt a run with Ctrl-C, cybervisor cleans up settings and skills automatically. To start fresh from a specific stage later, use `--start-from`:
 
 ```bash
-cybervisor run "Create a 360 feedback system" --start-stage "Implement"
+cybervisor run "Create a 360 feedback system" --start-from "Implement"
 ```
+
+`--start-from` alone starts a **fresh** agent session at the selected stage — it does not automatically reuse the previous session.
+
+When a stage breaks after an agent session is captured, cybervisor persists the session metadata under `.cybervisor/latest-session.json`. To continue from that session instead of starting fresh, add `--resume`:
+
+```bash
+cybervisor run "Create a 360 feedback system" --start-from "Implement" --resume
+```
+
+- The stage name, adapter name, and workspace root must all match the stored metadata.
+- If the adapter does not support continuation, or metadata is absent or mismatched, cybervisor logs the reason and starts a fresh attempt.
+- This works with both `cybervisor run` and `cybervisor submit`.
 
 To stop after a specific stage:
 

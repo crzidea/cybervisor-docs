@@ -29,7 +29,7 @@ cybervisor --version
 
 ### `Doctor: verifier blocked`
 
-`~/.cybervisor/config.yaml` is missing or the `llm.api_key` field is absent.
+`~/.cybervisor/config.yaml` is missing or the `llm.api_key` field is absent. The `llm.api_key` field is required when at least one effective non-contract stage needs model-assisted stop verification. If every effective stage for a non-mock adapter is contract-enabled, the verifier check is skipped and contract-only slices can run without `llm.api_key`.
 
 ```bash
 mkdir -p ~/.cybervisor

@@ -41,7 +41,7 @@ This is the preferred CI smoke test for exercising cybervisor's verify-stage con
 - Pass `--agent claude` to exercise the Claude Code adapter path with all LLM calls still routed through the mock API server. 
 - Creates a fresh workspace under `.tmp/e2e-verify/` and points the hook verifier to the mock API (does not touch `~/.cybervisor/config.yaml`).
 - Starts the bundled mock LLM API server (`scripts/.e2e_mock_llm_api.py`) in allow mode.
-- Runs the full 6-stage simple scaffold pipeline (Design Delivery → Review Delivery Docs → Implement → Review Code → Review Docs → Verify).
+- Runs the full 6-stage simple scaffold pipeline (Plan → Review Plan → Implement → Review Code → Review Docs → Verify).
 - Asserts artifact presence, Verify contract, and minimal generated-code footprint.
 
 ---
@@ -69,16 +69,16 @@ The server prints its URL to stdout on startup. Point the hook verifier at that 
 Example config JSON:
 ```json
 {
-  "Design Delivery": "Write the spec and plan.",
-  "Review Delivery Docs": "IMPLEMENTATION_READY",
+  "Plan": "Write the spec and plan.",
+  "Review Plan": "IMPLEMENTATION_READY",
   "Implement": "# Summary\n\nDone.",
   "Review Code": "APPROVED",
   "Review Docs": "APPROVED",
   "Verify": "APPROVED",
   "_fallback": "PASS",
   "claude": {
-    "Design Delivery": "Write the spec and plan.",
-    "Review Delivery Docs": "IMPLEMENTATION_READY",
+    "Plan": "Write the spec and plan.",
+    "Review Plan": "IMPLEMENTATION_READY",
     "Implement": "# Summary\n\nDone.",
     "Review Code": "APPROVED",
     "Review Docs": "APPROVED",
@@ -92,7 +92,7 @@ The top-level entries cover all agent tools; the `"claude"` section overrides sp
 
 ## Docker Image Building
 
-The repository includes a single-image `Dockerfile` for the published GHCR image and local sandbox testing. The image installs `cybervisor`, Python tooling, latest Node.js, and the supported coding-agent CLIs: Claude Code, Codex CLI, OpenCode, and Cursor Agent. (The Antigravity adapter uses the in-process `google-antigravity` Python SDK rather than a separate CLI).
+The repository includes a single-image `Dockerfile` for the published GHCR image and local sandbox testing. The image installs `cybervisor`, Python tooling, latest Node.js, Playwright with Chromium browser support, and the supported coding-agent CLIs: Claude Code, Codex CLI, OpenCode, and Cursor Agent. (The Claude adapter uses the in-process `claude-agent-sdk` Python SDK and the Antigravity adapter uses the in-process `google-antigravity` Python SDK — neither requires its CLI at runtime, but the Claude CLI is still installed for backward compatibility.)
 
 ### Local Build and Dev Sandbox
 

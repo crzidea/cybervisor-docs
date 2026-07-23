@@ -40,9 +40,8 @@ For the repository layout and package structure, see [Development](/development.
 | [Shell Completions](/completions.html) | Bash tab completion setup and comparison |
 | [Troubleshooting](/troubleshooting/index.html) | Common issues and resolutions |
 | [Testing and Sandbox](/testing.html) | Sandbox usage, mock adapter, simple demo scripts |
-| [Claude Code Agent Guide](/agents/claude.html) | Claude Code adapter configuration, settings patching, and permission hooks |
-| [Gemini Agent Guide](/agents/gemini.html) | Gemini adapter configuration, ACP protocol settings, and authentication |
-| [Cursor Agent Guide](/agents/cursor.html) | Cursor adapter configuration, native CLI permissions, and auth |
+| [Claude Code Agent Guide](/agents/claude.html) | Claude Code adapter SDK configuration, autonomous operation, and permission enforcement |
+| [Cursor Agent Guide](/agents/cursor.html) | Cursor adapter configuration, SDK integration, and auth |
 | [OpenCode Agent Guide](/agents/opencode.html) | OpenCode adapter serve mode, configuration injection, and timeouts |
 | [Antigravity Agent Guide](/agents/antigravity.html) | Antigravity SDK in-process execution, auth prerequisites, and setup |
 | [Codex Agent Guide](/agents/codex.html) | Codex adapter app-server configuration, callbacks, and sandbox overrides |
