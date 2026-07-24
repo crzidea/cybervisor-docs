@@ -86,9 +86,15 @@ cybervisor sandbox --group-add 123 --group-add users
 | `--name` | `cybervisor-sandbox-<hash>` | Container name (auto-generated from cwd hash if omitted) |
 | `--mount MOUNT_SPEC` | None | Extra Docker volume mount; repeatable. Supports `HOST`, `HOST:CONTAINER`, and `HOST:CONTAINER:ro|rw` |
 | `--group-add GROUP` | None | Docker supplementary group to add inside the container; repeatable. Group names or numeric IDs are passed verbatim to Docker |
+| `--docker` | `false` | Mount the host Docker socket and add its supplementary group (Docker-in-Docker shorthand) |
 
 ### Image Pull Behavior
-By default, `cybervisor sandbox` pulls the image from the registry before starting the container. This ensures the running container matches the latest published version.
+
+By default, `cybervisor sandbox` pulls the image from the registry before
+starting the container. This ensures the running container matches the latest
+published version. Docker's layer progress streams live to the terminal, and
+there is no artificial timeout.
+
 - **Pull succeeds**: Container starts with the freshly pulled image.
 - **Pull fails but a local image exists**: A warning is logged and the container starts with the local image. This covers intermittent network errors and registry outages.
 - **Pull fails and no local image exists**: The command exits with an error. Download the image manually (`docker pull <image>`) and retry, or check your network and registry access.
@@ -129,14 +135,25 @@ Use `--group-add` one or more times to add supplementary Linux groups inside the
 **Docker socket use case.** A common scenario is mounting the host Docker socket and granting the container process membership in the socket's group:
 
 ```bash
-# Find the Docker socket group ID on the host
-DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+# One-line shorthand (socket mount + socket group)
+cybervisor sandbox --docker
 
-# Grant access inside the sandbox
+# Equivalent manual recipe
+DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
 cybervisor sandbox --mount /var/run/docker.sock:/var/run/docker.sock --group-add "$DOCKER_GID"
 ```
 
-> **Security note:** Passing the Docker socket group expands host-level trust. Processes inside the container can control the host Docker daemon, which effectively grants root-equivalent access on the host. Only use this in environments where you accept that trust boundary expansion.
+`--docker` composes with explicit `--mount` and `--group-add` values. It adds
+the socket mount and group alongside anything you pass manually.
+
+When `DOCKER_HOST` uses a `unix://` path, `--docker` also forwards that setting
+into the container. For non-Unix values such as `tcp://`, it uses the default
+`/var/run/docker.sock` path instead.
+
+> **Security note:** Passing the Docker socket group expands host-level trust.
+> Processes inside the container can control the host Docker daemon, which
+> effectively grants root-equivalent access on the host. Only use this where
+> you accept that trust boundary expansion.
 
 **Prefer numeric group IDs.** Use numeric IDs rather than group names whenever the group may not exist inside the container image. A group name like `docker` is only resolved if it exists in the container's `/etc/group`. Numeric IDs work regardless of the image's group database.
 
@@ -144,7 +161,9 @@ cybervisor sandbox --mount /var/run/docker.sock:/var/run/docker.sock --group-add
 - `HOST_HOME` is set inside the container to the host user's home directory.
 - `HOME` is set to the same path as the host home directory inside the container.
 - `PYTHONNOUSERSITE=1` is set inside the container to prevent the host's `site.USER_SITE` directory from shadowing the container's own package metadata.
+- `IS_SANDBOX=1` is declared in the container image. This enables Claude stages to use `bypassPermissions` while the container runs as root. Host installations do not receive this declaration — it is scoped to the container trust boundary only.
 - API key environment variables (`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `CYBERVISOR_LLM_*`) are forwarded if set on the host.
+- A Unix-socket `DOCKER_HOST` is forwarded when `--docker` is set.
 
 ### Lifecycle
 - **Foreground mode** (default): Container runs attached to the terminal. `--rm` is passed so the container is auto-removed on exit. Pressing Ctrl+C sends SIGTERM to the container for graceful shutdown.

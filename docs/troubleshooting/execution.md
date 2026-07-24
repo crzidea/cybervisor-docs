@@ -45,7 +45,7 @@ cybervisor status
 ### Agent exits immediately with no output
 
 - Confirm subprocess agents are installed with `codex --version` or `opencode --version`.
-- Claude, Cursor, and Antigravity use in-process Python SDKs bundled with Cybervisor. Cursor additionally requires `cursor-sdk-bridge` on `PATH`. Run `cybervisor doctor` to verify the selected adapter and its authentication.
+- Claude, Cursor, and Antigravity use in-process Python SDKs bundled with Cybervisor. Cursor reads its API key only from `agents.cursor.api_key` in the active config. Run `cybervisor doctor` to verify the selected adapter and its authentication.
 - Check preflight output at the top of the run for missing prerequisites.
 - For agent-specific prerequisites, auth, or session timeouts, see the [Supported Agents Reference](../troubleshooting/index.md#agent-specific-guides-and-troubleshooting).
 

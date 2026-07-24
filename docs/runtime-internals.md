@@ -112,7 +112,9 @@ The `RunningProcess` protocol requires a `cancel()` method.
 
 Cancellation behavior:
 - For subprocess-based adapters (Codex and OpenCode), `cancel()` is a no-op or delegates to process-group termination.
-- For in-process adapters (Claude, Cursor, and Antigravity), `cancel()` sets a `threading.Event` that the SDK thread checks between iterations; the method then joins the thread with a bounded timeout.
+- For in-process adapters, `cancel()` stops the background SDK worker and joins the thread with a bounded timeout:
+  - **Claude** cancels the running SDK task on its event loop thread (`loop.call_soon_threadsafe(task.cancel)`). Cancelling at the suspended `await` unwinds the `async for` and closes the SDK async generators cleanly, avoiding the `aclose(): asynchronous generator is already running` error that a between-iteration flag can trigger. A stop event remains as a fallback for the startup race before the task exists.
+  - **Cursor** and **Antigravity** set a `threading.Event` that the SDK thread checks between iterations.
 - When a daemon cancel request arrives, the handler sets the task's cancel event, optionally delivers SIGINT, and calls `handle.cancel()` on the active running handle.
 - This cooperative path ensures in-process SDK work stops promptly rather than continuing after the daemon has marked the task as cancelled.
 
@@ -140,10 +142,10 @@ Cancellation behavior:
   - **Timeout & Recovery**: Every SSE event (including heartbeats and metadata) resets the idle timeout. If all SSE events stop for the configured window (default 600 seconds, override via `CYBUPERVISOR_OPENCODE_IDLE_TIMEOUT`), the adapter aborts the session and fails the stage attempt with an `idle_timeout_failed` event and a clear duration-bearing error. No recovery prompt is sent and no force-stop loop runs. The pipeline's normal retry-continuation policy decides what happens next. The polling loop also detects a real SSE transport error (`sse_consumer.error`) or a silent consumer EOF within one poll interval; the adapter attempts to reconnect the `/event` stream before failing. Stage logs record `idle_timeout_failed`, `sse_transport_error`, `sse_transport_reconnected`, and `sse_transport_reconnect_failed` entries.
 - **Cursor**: Uses the in-process `cursor-sdk>=1.0.24` adapter with no native settings hooks.
   - **Process Model**: The SDK `Agent` API is synchronous, so the adapter runs it on a worker thread and exposes a synchronous running handle to the pipeline.
-  - **Prerequisites**: The `cursor_sdk` module must be importable and `cursor-sdk-bridge` must resolve on `PATH`.
+  - **Prerequisites**: The `cursor_sdk` module must be importable. The platform wheel bundles its own bridge launcher under `cursor_sdk/_vendor/bridge/`, so no `cursor-sdk-bridge` binary needs to be on `PATH`.
   - **Authentication**: Reads only `agents.cursor.api_key` from the active Cybervisor config. Ambient environment variables and external login state are not fallback sources.
   - **Communication**: Calls the SDK directly. Events cross from the worker through a thread-safe queue; no session protocol or JSON-RPC transport is involved.
-  - **Message Translation**: Handles SDK message attributes defensively, tolerates absent or unfamiliar fields, and converts recognized replies, thinking, tool calls, completion events, session identifiers, and usage data into canonical events.
+  - **Message Translation**: Handles SDK message attributes defensively, tolerates absent or unfamiliar fields, and converts recognized replies, thinking, tool calls, completion events, session identifiers, and usage data into canonical events. Cursor extracts nested subagent `conversationSteps` from completed task tool results and renders them through the same canonical paths as top-level output.
   - **Tool Mapping**: Preserves Cursor's reported tool name while selecting a canonical formatter for known path, command, search, edit, task, and todo payloads.
   - **Verification**: Evaluates the collected reply after each turn and sends a continuation prompt through the same SDK agent when the verifier blocks completion.
   - **Permissions**: The SDK exposes no native pre-write control. `read_only_paths` therefore use `ACPReadOnlySnapshot` as snapshot-only post-hoc enforcement; protected changes are restored when possible and fail the attempt.

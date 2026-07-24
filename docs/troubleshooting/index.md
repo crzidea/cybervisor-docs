@@ -11,7 +11,7 @@ This section provides troubleshooting guides for `cybervisor`. Choose a category
 ## Troubleshooting Categories
 
 - **[Installation and Setup](/troubleshooting/installation.html)**
-  Issues with installation (`command not found`), verifier configuration, credentials, and usage reporting.
+  Issues with installation (`command not found`), verifier configuration, credentials, Cursor adapter preflight (`cursor-sdk` import and `agents.cursor.api_key`), and usage reporting.
 
 - **[Pipeline Execution](/troubleshooting/execution.html)**
   Issues with active locks, general pipeline runs, write-protection (`read_only_paths`), pipeline errors, configuration validation, and encoding/locale.

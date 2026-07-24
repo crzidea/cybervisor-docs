@@ -94,6 +94,8 @@ The top-level entries cover all agent tools; the `"claude"` section overrides sp
 
 The repository includes a single-image `Dockerfile` for the published GHCR image and local sandbox testing. The image installs `cybervisor`, Python tooling, latest Node.js, Playwright with Chromium browser support, and the supported coding-agent CLIs: Claude Code, Codex CLI, OpenCode, and Cursor Agent. (The Claude adapter uses the in-process `claude-agent-sdk` Python SDK and the Antigravity adapter uses the in-process `google-antigravity` Python SDK — neither requires its CLI at runtime, but the Claude CLI is still installed for backward compatibility.)
 
+The image declares `ENV IS_SANDBOX=1` so Claude stages can use `bypassPermissions` while the container runs as root. Host installations do not receive this declaration automatically; it is scoped to the container trust boundary only.
+
 ### Local Build and Dev Sandbox
 
 Build the local image:

@@ -64,11 +64,12 @@ cybervisor sandbox --image myregistry/cybervisor:dev  # Use a custom image
 cybervisor sandbox --no-pull              # Skip auto-pull, use cached image
 cybervisor sandbox --mount /data:/data:ro # Mount extra host paths
 cybervisor sandbox --group-add docker     # Add supplementary Docker group
+cybervisor sandbox --docker               # Docker-in-Docker (socket mount + group)
 ```
 
 ### Workspace-Local Config Override
 
-A `.cybervisor/config.yaml` file in the current working directory completely replaces `~/.cybervisor/config.yaml` when present — all settings (verifier, `agent_tool`, `stage_models`, `stage_agents`, `usage_reporting`, `server`, etc.) come from the workspace-local file, and the home-directory config is not loaded. Pipeline configuration (`cybervisor.yaml`) has no CWD override — it is always resolved from the project root.
+A `.cybervisor/config.yaml` file in the current working directory completely replaces `~/.cybervisor/config.yaml` when present — all settings (verifier, `agent_tool`, `agents`, `stage_models`, `stage_agents`, `usage_reporting`, `server`, etc.) come from the workspace-local file, and the home-directory config is not loaded. Pipeline configuration (`cybervisor.yaml`) has no CWD override — it is always resolved from the project root.
 
 This precedence is honored on every stage-boundary reload, not just at task start, so editing or removing the workspace-local file mid-run takes effect at the next stage. If the workspace-local file is removed during a run, the next reload resolves `~/.cybervisor/config.yaml` without operator action. See [Runtime and Daemon — Per-Stage Config Reload](runtime-user.md#per-stage-config-reload) for full reload behavior.
 
@@ -122,6 +123,10 @@ agents:
 When `.cybervisor/config.yaml` exists in the workspace, it replaces the home
 config, so the Cursor key must be present there. Environment variables and
 Cursor CLI login state are not fallback credential sources.
+
+Changing the default agent with `cybervisor use <agent>` updates only
+`agent_tool`. The `agents` map, including `agents.cursor.api_key`, is preserved
+unchanged.
 
 ## Scaffolding (`cybervisor init`)
 

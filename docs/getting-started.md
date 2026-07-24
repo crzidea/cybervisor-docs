@@ -122,21 +122,19 @@ The `mock` agent (`cybervisor use mock`) requires no external binary or API key.
 ### The `cursor` Agent
 
 The `cursor` agent uses the `cursor-sdk>=1.0.24` Python package, included as a
-Cybervisor dependency, and requires `cursor-sdk-bridge` on `PATH`. Configure
-authentication only through the active Cybervisor config:
-
-```bash
-uv tool install "cursor-sdk>=1.0.24"
-```
+Cybervisor dependency. The platform wheel bundles its own bridge launcher, so no
+`cursor-sdk-bridge` binary needs to be on `PATH`. Configure authentication only
+through the active Cybervisor config:
 
 ```yaml
+agent_tool: cursor
 agents:
   cursor:
     api_key: your-cursor-api-key
 ```
 
 Environment variables and Cursor CLI login state are not used. Run
-`cybervisor doctor` to verify the SDK, bridge, and API key. See the
+`cybervisor doctor` to verify the SDK and API key. See the
 [Cursor Agent Guide](/agents/cursor.html) for complete setup details.
 
 ### The `claude` Agent
