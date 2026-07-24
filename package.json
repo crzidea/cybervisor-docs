@@ -6,7 +6,7 @@
   "scripts": {
     "sync": "node scripts/sync-docs.js",
     "dev": "vitepress dev",
-    "build": "vitepress build",
+    "build": "npm run sync && vitepress build",
     "preview": "vitepress preview",
     "deploy": "npm run build && wrangler deploy",
     "wrangler:dev": "wrangler dev"
