@@ -48,7 +48,6 @@ export default defineConfig({
         text: "Agent Guides",
         items: [
           { text: "Claude Code", link: "/agents/claude" },
-          { text: "Gemini", link: "/agents/gemini" },
           { text: "Cursor", link: "/agents/cursor" },
           { text: "OpenCode", link: "/agents/opencode" },
           { text: "Antigravity", link: "/agents/antigravity" },
