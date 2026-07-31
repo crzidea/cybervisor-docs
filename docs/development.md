@@ -29,10 +29,10 @@ For a fast smoke test that exercises the full pipeline through `Verify` using a 
 
 ```bash
 ./scripts/e2e-verify-smoke.sh
-./scripts/e2e-verify-smoke.sh --agent claude   # use Claude Code adapter instead of mock
+./scripts/e2e-verify-smoke.sh --harness claude   # use Claude Code adapter instead of mock
 ```
 
-Both modes route all LLM calls (post-run verifier and stage agent) through the
+Both modes route all LLM calls (post-run verifier and harness-backed stage) through the
 bundled mock API server, so no real API keys are needed.
 
 Release helper:
@@ -83,7 +83,7 @@ src/cybervisor/        Core CLI package (split into focused subpackages)
   pipeline/            Pipeline execution (runner, _execution, _continuation, _session_metadata, _cleanup, _interrupt, _routing, artifacts, contract)
   server/              Daemon WebSocket server (daemon, _daemon_config, handlers, _task_exec, tasks, _cleanup, _path)
   evaluation/          Context-driven contracts, verifier client, decisions, events, and reply evaluation
-  adapters/            Agent adapter registry and tool-specific adapters (claude, codex, opencode, cursor, antigravity, mock)
+  adapters/            Harness adapter registry and tool-specific adapters (claude, codex, opencode, cursor, antigravity, mock)
     codex/             Codex SDK adapter (adapter, _handle, _sdk_wrapper, _app_helpers)
     claude/            Claude adapter (adapter, _handle, _sdk_wrapper, stream)
     opencode/          OpenCode adapter (adapter, serve_transport, serve_client, stream)

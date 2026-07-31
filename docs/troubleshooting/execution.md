@@ -57,7 +57,8 @@ evaluation log is `.cybervisor/logs/evaluation-events.jsonl`.
   or newer on `PATH` and a completed interactive login. Run
   `cybervisor doctor` to verify the selected adapter.
 - Check preflight output at the top of the run for missing prerequisites.
-- For agent-specific prerequisites, auth, or session timeouts, see the [Supported Agents Reference](../troubleshooting/index.md#agent-specific-guides-and-troubleshooting).
+- For harness-specific prerequisites, authentication, or session timeouts, see
+  the [supported harness guides](../troubleshooting/index.md#agent-specific-guides-and-troubleshooting).
 
 ### `tool call:` lines show only a title
 Live stderr builds `tool call:` lines from each agent's structured events. 
@@ -111,9 +112,9 @@ If the agent reports "Path X is protected by the pipeline (read_only_paths)", th
 
 This warning means the pipeline tried to continue a prior agent session on retry but could not, so it fell back to a fresh session. Common reasons:
 
-- **`adapter_does_not_support_continuation`** — The adapter for this stage does not have a native session-resume mechanism. All adapters other than OpenCode and Antigravity currently fall back to fresh retries. This is expected and does not indicate a problem.
+- **`adapter_does_not_support_continuation`** — The adapter for this stage does not have a native session-resume mechanism. Claude, OpenCode, and Antigravity support continuation; other adapters fall back to fresh retries. This is expected and does not indicate a problem.
 - **`no_prior_session_id`** — The previous attempt did not capture a session ID (e.g., the adapter crashed before the session was established). The retry starts a new session instead.
-- **`conversation_unavailable`** — Antigravity requested an explicit continuation but the CLI reported the prior conversation was unavailable. Cybervisor retries once with a fresh conversation.
+- **`conversation_unavailable`** — Antigravity requested an in-session continuation but the CLI reported the prior conversation was unavailable. The continuation loop stops and the normal stage retry policy applies; the adapter does not silently create a fresh conversation inside that loop.
 - **`serve_process_exited_with_code_<n>`** — OpenCode-specific. The prior `opencode serve` subprocess is no longer running. The exit code is appended to the reason.
 - **`serve_health_check_failed`** — OpenCode-specific. The serve process is alive but the `/global/health` endpoint did not respond. Cybervisor starts a new serve instance and session.
 
@@ -121,7 +122,11 @@ In all cases, the retry still proceeds normally — the stage gets a fresh agent
 
 ### Retry appears to restart from the beginning
 
-If the adapter does not support retry continuation (adapters other than OpenCode and Antigravity), each retry starts a new agent session with the original prompt. To reduce duplicated work on retry, consider reducing `max_retries` or restructuring the stage into smaller units.
+If the adapter does not support retry continuation, each retry starts a new
+agent session with the original prompt. Claude, OpenCode, and Antigravity can
+reuse their captured sessions when available. To reduce duplicated work on
+retry, consider reducing `max_retries` or restructuring the stage into smaller
+units.
 
 ---
 
@@ -170,7 +175,9 @@ This message means cybervisor found persisted session metadata but it did not ma
 
 - **No persisted metadata** (`no_session_metadata`) — There is no `.cybervisor/latest-session.json` in the workspace (e.g., the previous run never captured a session id, or the file was deleted). The stage starts as a fresh attempt.
 - **Stage name mismatch** (`stage_mismatch`) — You resumed at a different stage than the one that captured the session id.
-- **Adapter name mismatch** (`adapter_mismatch`) — The current adapter differs from the one that captured the session id (e.g., you changed `agent_tool` or the stage uses a `stage_agents` override).
+- **Adapter name mismatch** (`adapter_mismatch`) — The current adapter differs
+  from the one that captured the session id (for example, you changed
+  `harness` or the stage has a `stage_overrides` harness override).
 - **Workspace root mismatch** (`workspace_mismatch`) — You are running from a different working directory than the original run.
 - **Empty session id** (`empty_session_id`) — The persisted metadata is structurally valid but contains a blank `session_id`. Treat it as no metadata available and start fresh.
 - **Persisted session not reusable** (`persisted_continuation_unavailable`) — The metadata matched, but the live serve session (for example, `opencode serve`) is not reachable, so a fresh session is started. This is the typical fallback when you run `--resume` after a previous OpenCode session has fully exited.

@@ -11,7 +11,7 @@ This section provides troubleshooting guides for `cybervisor`. Choose a category
 ## Troubleshooting Categories
 
 - **[Installation and Setup](/troubleshooting/installation.html)**
-  Issues with installation (`command not found`), verifier configuration, credentials, Cursor adapter preflight (`cursor-sdk` import and `agents.cursor.api_key`), and usage reporting.
+  Issues with installation (`command not found`), verifier configuration, credentials, Cursor adapter preflight (`cursor-sdk` import and `harnesses.cursor.api_key`), and usage reporting.
 
 - **[Pipeline Execution](/troubleshooting/execution.html)**
   Issues with active locks, general pipeline runs, write-protection (`read_only_paths`), pipeline errors, configuration validation, and encoding/locale.
@@ -21,14 +21,15 @@ This section provides troubleshooting guides for `cybervisor`. Choose a category
 
 ---
 
-## Agent-Specific Guides and Troubleshooting
+## Harness-Specific Guides and Troubleshooting
 
-If you are encountering issues specific to a coding-agent tool or SDK, refer to its dedicated guide:
+If you are encountering issues specific to a harness or SDK, refer to its
+dedicated guide:
 
-- **[Claude Code Agent Guide](/agents/claude.html)**
-- **[Cursor Agent Guide](/agents/cursor.html)**
-- **[OpenCode Agent Guide](/agents/opencode.html)**
-- **[Antigravity Agent Guide](/agents/antigravity.html)**
+- **[Claude Code Harness Guide](/agents/claude.html)**
+- **[Cursor Harness Guide](/agents/cursor.html)**
+- **[OpenCode Harness Guide](/agents/opencode.html)**
+- **[Antigravity Harness Guide](/agents/antigravity.html)**
   Missing or old `agy`, interactive login, headless status failures, retry
   continuation, and cancellation.
-- **[Codex Agent Guide](/agents/codex.html)**
+- **[Codex Harness Guide](/agents/codex.html)**

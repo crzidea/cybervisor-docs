@@ -10,7 +10,7 @@ title: Pipeline Authoring Guide
 
 These constraints are non-negotiable and will block execution if violated:
 
-1.  **One Executor:** Each stage is either an agent stage or a command stage.
+1.  **One Executor:** Each stage is either an harness-backed stage or a command stage.
     Use `prompt` for agent instructions or `command` for a trusted shell
     command, never both. `prompt` is the preferred alias for the legacy
     `prompt_template` spelling. Defining both prompt spellings is also invalid,
@@ -39,10 +39,10 @@ These constraints are non-negotiable and will block execution if violated:
     as prohibiting `APPROVED` after the stage edits files.
 8.  **Contract Artifact Status Key:** Contract artifacts must use capitalized
     `Status`. Lowercase `status` is rejected.
-9.  **Recoverable Artifact Errors:** Unexpected fields, invalid statuses, and
-    missing required fields return `CORRECTION REQUIRED` guidance so the agent
-    can repair the artifact. Missing files and invalid YAML remain
-    non-recoverable.
+9.  **Recoverable Artifact Errors:** Missing artifacts, unexpected fields,
+    invalid statuses, and missing required fields return `CORRECTION REQUIRED`
+    guidance so the agent can repair the artifact. Invalid YAML and non-mapping
+    artifact content remain non-recoverable.
 10. **Safe Stage Names:** Stage names may contain normal text and spaces, but
     must not be `.` or `..` and must not contain path separators or control
     characters. Cybervisor uses stage names in generated artifact and log
@@ -94,34 +94,52 @@ rewriting in `.cybervisor/logs/stages/<stage>.jsonl` and mirrored to stderr
 with stage and command attribution. A command-only effective slice needs no
 objective, coding agent, agent executable, or verifier API key.
 
-Command stages cannot participate in routing cycles. Unlike agent stages, they
+Command stages cannot participate in routing cycles. Unlike harness-backed stages, they
 cannot declare `max_iterations`, so Cybervisor rejects direct and indirect
 command-stage cycles while loading the pipeline.
 
 ## Pipeline lifecycle hooks
 
-Use root-level plural `hooks` for workspace preparation, telemetry, or
-reporting shared by every executable stage:
+Use the active global configuration for user- or machine-level preparation,
+telemetry, or reporting shared across workspaces:
 
 ```yaml
+# ~/.cybervisor/config.yaml or .cybervisor/config.yaml
 hooks:
   before_stage: scripts/lifecycle.sh
   after_stage: scripts/lifecycle.sh
+```
+
+Use root-level plural `hooks` in `cybervisor.yaml` only when the pipeline needs
+to replace or disable a global phase:
+
+```yaml
+hooks:
+  before_stage: scripts/project-lifecycle.sh
+  after_stage: null
 stages:
   - name: Implement
   - name: Test
     command: uv run pytest
 ```
 
-The plural name is distinct from the singular `verifier` mapping. Lifecycle
-hooks are global; `before_stage` or `after_stage` under an individual stage is
-rejected. Put conditional logic inside the script when only selected stages
-need an action. Each hook value is a literal shell command: Cybervisor does not
-render placeholders or otherwise interpret braces in it.
+An omitted pipeline phase inherits its global command, a pipeline string
+replaces it, and a phase-level `null` disables it. An omitted, empty, or
+whole-mapping `null` pipeline section inherits both phases. Global and
+pipeline commands never run as an automatic chain.
+
+The plural name is distinct from the singular `verifier` mapping. A lifecycle
+field under an individual stage is rejected. Put conditional logic inside the
+script when only selected stages need an action. Each hook value is a literal
+shell command: Cybervisor does not render placeholders or otherwise interpret
+braces in it.
 
 ```mermaid
 flowchart TD
-    R[Render stage input] -->|success| S[Emit stage start]
+    T[Attempt boundary] --> L[Reload global config]
+    L --> P[Capture effective hook pair]
+    P --> R[Render stage input]
+    R -->|success| S[Emit stage start]
     R -->|failure| X[Fail without cleanup or hooks]
     S --> C[Cleanup once]
     C --> B[Run literal before_stage command with hook environment]
@@ -137,6 +155,9 @@ flowchart TD
 The commands run from the pipeline workspace on every retry and routed
 revisit. Attempt numbers are one-based within a visit. Iteration numbers are
 one-based across visits, and retries keep the same iteration number.
+Cybervisor reloads global defaults and resolves one immutable pair before each
+attempt. An edit during an attempt cannot change that attempt's after hook;
+the edit applies at the next attempt boundary.
 
 Both phases define all of these variables:
 
@@ -367,36 +388,27 @@ stages:
 
 ## VI. Stage Field Reference
 
-### Per-Stage Agent Override (`stage_agents`) {#stage_agents}
+### Per-Stage Harness, Model, and Effort Overrides {#stage_overrides}
 
-Per-stage agent overrides live in `~/.cybervisor/config.yaml` (not in `cybervisor.yaml`) because they are a per-user runtime concern, not a pipeline-structure concern.
+Harness-backed runtime settings are user-specific and live in the active
+global config, not in `cybervisor.yaml`. Use `stage_overrides` to set any
+subset of `harness`, `model`, and `effort` for a named stage. An empty mapping
+is valid. Command stages bypass this resolution entirely.
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `stage_agents` | `dict[str, str]` | No | Top-level mapping of stage names to agent tool names. Overrides the agent tool for the named stage. Values must match a supported agent name (`claude`, `codex`, `opencode`, `cursor`, `antigravity`, `mock`). |
-
-**Behavior:**
-- `stage_agents` is optional; absent means all stages use the global `agent_tool` default.
-- A stage name must match exactly (case-sensitive, per `StageConfig.name`). Unknown stage names are silently ignored at runtime.
-- Values are validated against supported agent names at config load time. Invalid values produce an error listing supported names.
-- The agent resolution order: `stage_agents[stage_name]` → global `agent_tool` default.
-
-**Example:**
 ```yaml
-# ~/.cybervisor/config.yaml
-agent_tool: claude
-stage_agents:
-  "Plan": codex
-  "Review Plan": codex
+harness: claude
+model_effort: medium
+stage_overrides:
+  Plan:
+    harness: codex
+    model: gpt-5.6
+    effort: xhigh
+  Review Code:
+    effort: high
 ```
 
-**Adapter compatibility:** All supported adapters enforce contracts and
-read-only paths. Claude uses Git-backed change detection without changing
-settings.
-OpenCode injects native permission rules through `OPENCODE_CONFIG_CONTENT`.
-Cursor, Codex, and Antigravity use Git-backed detect-only enforcement.
-Antigravity also applies a process-local autonomous permission override to
-`agy`; it does not edit persistent settings.
+Resolution, capability support, reload behavior, and legacy migration are in
+the [configuration reference](configuration.md#global-harness-and-per-stage-runtime-overrides).
 
 ### `backup_artifacts` {#backup_artifacts}
 
@@ -677,41 +689,11 @@ Completed Tasks:
 `Write unit tests`, evaluation returns a block with:
 > The 'Completed Tasks' field is missing the following configured task(s): Pass mypy --strict, Pass ruff check. Continue the required work before listing them.
 
-### Per-Stage Model Override (`stage_models`) {#stage_models}
-
-Per-stage model overrides live in `~/.cybervisor/config.yaml` (not in `cybervisor.yaml`) because they are a per-user runtime concern, not a pipeline-structure concern.
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `stage_models` | `dict[str, str]` | No | Top-level mapping of stage names to agent tool model identifiers. Overrides the agent tool model for the named stage. The verifier always uses `llm.model`. |
-
-**Behavior:**
-- `stage_models` is optional; absent means all stages use the agent tool's default model.
-- A stage name must match exactly (case-sensitive, per `StageConfig.name`). Unknown stage names are silently ignored at runtime.
-- The model resolution order: `stage_models[stage_name]` → agent tool default model.
-- The verifier always uses `llm.model` globally; per-stage verifier models are no longer supported.
-
-**Example:**
-```yaml
-# ~/.cybervisor/config.yaml
-agent_tool: claude
-llm:
-  api_key: "sk-..."
-  base_url: "https://api.openai.com/v1"
-  model: "gpt-4o"
-
-stage_models:
-  Spec: "claude-sonnet-4-6"
-  "Review Code": "claude-opus-4-6"
-```
-
-**Deprecation note:** The previous `llm.stage_models` key is deprecated. If present, a warning is logged and the value is ignored. Migrate by moving `stage_models` to the top level.
-
 ### `read_only_paths` {#read_only_paths}
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `read_only_paths` | `list[str]` | No | Per-stage list of glob patterns that agent stages must not modify. Claude, Cursor, Codex, and Antigravity use Git-backed detect-only enforcement; OpenCode generates native permission deny rules in `OPENCODE_CONFIG_CONTENT`. The pipeline also tells the agent about protected paths in the stage prompt. When empty or absent, no adapter read-only enforcement is active. |
+| `read_only_paths` | `list[str]` | No | Per-stage list of glob patterns that harness-backed stages must not modify. Claude, Cursor, Codex, and Antigravity use Git-backed detect-only enforcement; OpenCode generates native permission deny rules in `OPENCODE_CONFIG_CONTENT`. The pipeline also tells the agent about protected paths in the stage prompt. When empty or absent, no adapter read-only enforcement is active. |
 
 **Behavior:**
 - `read_only_paths: []` (empty list) or absent — no write protection for that stage, and no read-only section is appended to the prompt. Adapter-level read-only enforcement is skipped.

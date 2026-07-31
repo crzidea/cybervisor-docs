@@ -253,9 +253,16 @@ Client may send `ping` at any time. Server responds with `pong`.
   "type": "run_complete",
   "task_id": "550e8400-e29b-41d4-a716-446655440000",
   "success": true,
+  "halted_at_end_stage": "Review Plan",
   "timestamp": "2026-04-02T12:05:00.000Z"
 }
 ```
+
+`halted_at_end_stage` is optional. It is present only when an operator's
+`cybervisor end --after/--before` command halted a batch task. The value is the
+operator's requested stop target. Submit-time `--end-after` and `--end-before`
+boundaries do not populate this field because they are normal per-plan
+completion boundaries.
 
 ### `event_replay` — Historical Events on Resume
 

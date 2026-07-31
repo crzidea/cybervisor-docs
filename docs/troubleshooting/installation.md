@@ -34,7 +34,7 @@ cybervisor --version
 ```bash
 mkdir -p ~/.cybervisor
 cat > ~/.cybervisor/config.yaml <<'EOF'
-agent_tool: claude
+harness: claude
 llm:
   api_key: sk-your-key-here
 EOF
@@ -53,7 +53,7 @@ The API key is present but the remote endpoint rejected it (401 Unauthorized).
 ## Cursor Adapter Preflight
 
 When Cursor is selected globally or for an effective stage, `cybervisor doctor`
-checks the SDK import and `agents.cursor.api_key` in the active config.
+checks the SDK import and `harnesses.cursor.api_key` in the active config.
 
 ### `Doctor: adapter 'cursor' blocked` — SDK missing
 
@@ -70,7 +70,7 @@ The platform wheel bundles its own bridge launcher, so a missing
 
 ### `Doctor: adapter 'cursor' blocked` — API key missing
 
-Add the key under `agents.cursor.api_key` in the active home or workspace-local
+Add the key under `harnesses.cursor.api_key` in the active home or workspace-local
 config. `CURSOR_API_KEY` is not used as a fallback.
 
 ---

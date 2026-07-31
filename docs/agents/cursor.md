@@ -1,14 +1,16 @@
 ---
-title: Cursor Agent Guide
+title: Cursor Harness Guide
 ---
 
-# Cursor Agent Guide
+# Cursor Harness Guide
 
-> **Audience: Users** — Operators configuring or troubleshooting the Cursor agent adapter.
+> **Audience: Users** — Operators configuring or troubleshooting the Cursor harness adapter.
 
 The Cursor adapter uses the `cursor-sdk` Python package. Cybervisor runs the
 synchronous SDK in-process on a worker thread rather than launching a Cursor
-CLI session.
+CLI session. The pinned SDK exposes no model-effort option. Any explicit
+global or per-stage effort resolved for Cursor is rejected before the harness
+starts; omit effort to retain normal Cursor behavior.
 
 ```mermaid
 flowchart LR
@@ -25,8 +27,8 @@ flowchart LR
   - The platform wheel bundles its own bridge launcher under
     `cursor_sdk/_vendor/bridge/`, so no `cursor-sdk-bridge` binary needs to
     be on `PATH`.
-- `agents.cursor.api_key` must be set in the active Cybervisor config.
-- Cursor uses the SDK's `composer-2.5` model unless `stage_models` overrides it.
+- `harnesses.cursor.api_key` must be set in the active Cybervisor config.
+- Cursor uses the SDK's `composer-2.5` model unless a `stage_overrides` entry supplies `model`.
 
 The SDK package is a Cybervisor dependency, so a normal Cybervisor install
 provides it. Verify the setup with:
@@ -40,9 +42,9 @@ cybervisor doctor
 Select Cursor and store its API key in `~/.cybervisor/config.yaml`:
 
 ```yaml
-agent_tool: cursor
+harness: cursor
 
-agents:
+harnesses:
   cursor:
     api_key: your-cursor-api-key
 ```
@@ -52,10 +54,10 @@ separately under `llm` in the same config file. See the
 [Configuration Reference](/configuration.html) for details.
 
 A workspace-local `.cybervisor/config.yaml`, when present, replaces the home
-config completely. Put `agents.cursor.api_key` in that file instead for a
+config completely. Put `harnesses.cursor.api_key` in that file instead for a
 workspace-local setup.
 
-The adapter reads only `agents.cursor.api_key`. Environment variables, Cursor
+The adapter reads only `harnesses.cursor.api_key`. Environment variables, Cursor
 CLI login state, and separate Cursor configuration files are not authentication
 sources for this adapter.
 
@@ -167,7 +169,7 @@ rather than a source distribution.
 
 ### Cursor API key is not configured
 
-Add `agents.cursor.api_key` to the active home or workspace-local Cybervisor
+Add `harnesses.cursor.api_key` to the active home or workspace-local Cybervisor
 config. Do not rely on an environment variable or Cursor CLI login.
 
 `CURSOR_API_KEY` and other ambient environment variables are ignored when the

@@ -17,7 +17,7 @@ Key unit test files in `tests/unit/` include:
 - `test_cli_commands.py` — CLI command dispatch and behavior
 - `test_pipeline_stage_execution.py` — Pipeline stage execution
 - `evaluation/test_contracts_events_prompts.py` — post-run contract evaluation
-- `test_adapter_registry.py` — Agent adapter registry
+- `test_adapter_registry.py` — Harness adapter registry
 - `test_completions.py` — Shell completion script generation and dynamic completer wiring
 - `test_daemon_lock.py` — Daemon lock file management and stale-lock recovery
 
@@ -33,12 +33,13 @@ uv run pytest
 For a dedicated verify-stage smoke test that runs the full pipeline through `Verify` using a minimal feature prompt and the bundled mock LLM API (target runtime: under 90 seconds):
 
 ```bash
-scripts/e2e-verify-smoke.sh [--agent claude]
+scripts/e2e-verify-smoke.sh [--harness claude]
 ```
 
-This is the preferred CI smoke test for exercising cybervisor's verify-stage contract and routing infrastructure. 
-- By default it uses `agent_tool: mock` (no external binaries or API keys needed). 
-- Pass `--agent claude` to exercise the Claude Code adapter path with all LLM calls still routed through the mock API server. 
+This is the preferred CI smoke test for exercising cybervisor's verify-stage contract and routing infrastructure.
+- By default it uses `harness: mock` (no external binaries or API keys needed).
+- Pass `--harness claude` to exercise the Claude Code adapter path with all
+  LLM calls still routed through the mock API server.
 - Creates a fresh workspace under `.tmp/e2e-verify/` and points the verifier
   to the mock API (does not touch `~/.cybervisor/config.yaml`).
 - Starts the bundled mock LLM API server (`scripts/.e2e_mock_llm_api.py`) in allow mode.
@@ -51,7 +52,7 @@ This is the preferred CI smoke test for exercising cybervisor's verify-stage con
 
 The mock API server (`scripts/.e2e_mock_llm_api.py`) is an OpenAI-compatible HTTP server for testing. It:
 - Returns deterministic `approve`/`block` decisions for verifier calls.
-- Returns stage-specific responses from a JSON config file for stage-agent calls.
+- Returns stage-specific responses from a JSON config file for harness-backed stage calls.
 
 ### Standalone Mock API Usage
 
@@ -91,7 +92,7 @@ Example config JSON:
   }
 }
 ```
-The top-level entries cover all agent tools; the `"claude"` section overrides specific stage responses for Claude Code tool prompts.
+The top-level entries cover all harnesses; the `"claude"` section overrides specific stage responses for Claude Code tool prompts.
 
 ---
 

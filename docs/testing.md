@@ -28,9 +28,11 @@ That script:
 
 ---
 
-## Mock Adapter (`agent_tool: mock`)
+## Mock Adapter (`harness: mock`)
 
-When `agent_tool: mock` is set in `cybervisor.yaml` or `~/.cybervisor/config.yaml`, the pipeline uses the built-in mock adapter instead of launching an external agent tool. The adapter completes every stage with a zero-exit process and:
+When `harness: mock` is set in the active global config, the pipeline uses the
+built-in mock adapter instead of launching an external harness. The adapter
+completes every stage with a zero-exit process and:
 - Emits contract artifacts for stages that have a contract with field-injection routes (e.g. `Review Plan`, `Review Code`). The status value is the first route key from the loaded config.
 - Also emits contract artifacts for stages with `contract.required_tasks` even when routes have no injections, because `required_tasks` enforcement needs the artifact.
 - Does **not** emit contract artifacts for routing-only stages — stages whose routes all redirect to other stages without injected fields and without `required_tasks`.

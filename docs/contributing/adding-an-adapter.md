@@ -1,10 +1,10 @@
 ---
-title: Adding an agent adapter
+title: Adding a harness adapter
 ---
 
-# Adding an agent adapter
+# Adding a harness adapter
 
-> **Audience: Developers** — Contributors implementing or reviewing agent adapters.
+> **Audience: Developers** — Contributors implementing or reviewing harness adapters.
 
 An adapter translates one agent runtime into Cybervisor's common launch,
 streaming, cancellation, and post-run evaluation interfaces. Pipeline
@@ -23,18 +23,18 @@ Implement an `AgentAdapter` and register its descriptor in
   declares `supports_post_run_evaluation=True`
 - a health check and any adapter-specific authentication discovery
 
-`AdapterCapabilities` advertises behavior. Do not add tool-name conditionals
+`HarnessCapabilities` advertises behavior. Do not add harness-name conditionals
 to pipeline code; keep transport-specific behavior inside the adapter.
 
 ## Post-run evaluation
 
-`LaunchRequest.evaluation_context` contains an immutable
+`HarnessLaunchRequest.evaluation_context` contains an immutable
 `StageEvaluationContext`:
 
 ```python
 @dataclass(frozen=True)
 class StageEvaluationContext:
-    agent_tool: str
+    harness: str
     workspace_root: Path
     stage_name: str
     stage_prompt: str

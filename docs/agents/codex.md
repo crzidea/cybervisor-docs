@@ -1,14 +1,22 @@
 ---
-title: Codex Agent Guide
+title: Codex Harness Guide
 ---
 
-# Codex Agent Guide
+# Codex Harness Guide
 
-> **Audience: Users** - Operators configuring or troubleshooting the Codex agent adapter.
+> **Audience: Users** - Operators configuring or troubleshooting the Codex harness adapter.
 
 The Codex adapter uses the official `openai-codex` Python SDK. Its matching
 `openai-codex-cli-bin` dependency provides the runtime, so a separately
 installed `codex` executable is not required on `PATH`.
+
+Supported effort values are `minimal`, `low`, `medium`, `high`, and `xhigh`.
+Cybervisor passes an explicit effort to each SDK turn and sends nothing when
+effort is omitted. If the installed SDK rejects the requested effort, the
+stage fails with an actionable message rather than quietly rerunning at the
+Codex default effort. Global configuration accepts arbitrary non-empty effort
+strings; this harness-specific validation happens only when a Codex stage is
+prepared.
 
 ## Runtime
 

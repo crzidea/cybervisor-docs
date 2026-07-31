@@ -34,18 +34,18 @@ For the repository layout and package structure, see [Development](/development.
 |----------|---------------|
 | [Getting Started](/getting-started.html) | Step-by-step tutorial from install to first pipeline run |
 | [Configuration Reference](/configuration.html) | `cybervisor.yaml`, `~/.cybervisor/config.yaml`, stage fields, CLI commands |
-| [Pipeline Authoring Guide](/pipeline-authoring.html) | Designing stages, contracts, routing, and agent prompts |
+| [Pipeline Authoring Guide](/pipeline-authoring.html) | Designing stages, contracts, routing, and stage prompts |
 | [Runtime and Daemon — User Guide](/runtime-user.html) | Daemon commands, client interaction, live stderr output, skill disable/restore, signals |
 | [Updating](/updating.html) | Install, upgrade, and migration workflows |
 | [Shell Completions](/completions.html) | Bash tab completion setup and comparison |
 | [Local Usage Metrics](/usage-metrics.html) | Private task history, filters, grouping, and token coverage |
 | [Troubleshooting](/troubleshooting/index.html) | Common issues and resolutions |
 | [Testing and Sandbox](/testing.html) | Sandbox usage, mock adapter, simple demo scripts |
-| [Claude Code Agent Guide](/agents/claude.html) | Claude Code adapter SDK configuration, autonomous operation, and permission enforcement |
-| [Cursor Agent Guide](/agents/cursor.html) | Cursor adapter configuration, SDK integration, and auth |
-| [OpenCode Agent Guide](/agents/opencode.html) | OpenCode adapter serve mode, configuration injection, and timeouts |
-| [Antigravity Agent Guide](/agents/antigravity.html) | Official `agy` CLI setup, authentication, permissions, and troubleshooting |
-| [Codex Agent Guide](/agents/codex.html) | Official SDK runtime, autonomous continuation, and Git-backed enforcement |
+| [Claude Code Harness Guide](/agents/claude.html) | Claude Code adapter SDK configuration, autonomous operation, and permission enforcement |
+| [Cursor Harness Guide](/agents/cursor.html) | Cursor adapter configuration, SDK integration, and auth |
+| [OpenCode Harness Guide](/agents/opencode.html) | OpenCode adapter serve mode, configuration injection, and timeouts |
+| [Antigravity Harness Guide](/agents/antigravity.html) | Official `agy` CLI setup, authentication, permissions, and troubleshooting |
+| [Codex Harness Guide](/agents/codex.html) | Official SDK runtime, autonomous continuation, and Git-backed enforcement |
 
 ## Developer Guides
 
@@ -55,5 +55,5 @@ For the repository layout and package structure, see [Development](/development.
 | [Testing Reference](/testing-dev.html) | Unit test suite layout, mock API server, Docker image building |
 | [Updating — Developer Reference](/updating-dev.html) | Repo update and release publishing |
 | [Development](/development.html) | Repository layout, local setup, tests, and release workflow |
-| [Adding an Adapter](/contributing/adding-an-adapter.html) | Maintainer contract for new coding-agent adapters |
+| [Adding an Adapter](/contributing/adding-an-adapter.html) | Maintainer contract for new harness adapters |
 | [WebSocket Protocol](/websocket-protocol.html) | Daemon message schema, connection lifecycle, chunking |

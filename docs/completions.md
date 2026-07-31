@@ -23,7 +23,7 @@ If cybervisor is already installed without the extra, reinstall with `uv tool in
 
 When runtime data is available, the argcomplete integration completes:
 
-- **Agent tools** (`cybervisor use <TAB>`) — lists adapter registry names (e.g., `claude`, `mock`, `codex`)
+- **Harnesses** (`cybervisor use <TAB>`) — lists adapter registry names (e.g., `claude`, `mock`, `codex`)
 - **Stage names** (`--start-from`, `--end-after`, `--end-before`) — reads stage names from `cybervisor.yaml` in the current directory
 - **Document IDs** (`cybervisor docs <TAB>`) — lists available document identifiers
 
@@ -43,7 +43,7 @@ source <(cybervisor completion bash)
 
 To persist across shell sessions, add the `source` line to `~/.bashrc`.
 
-This method covers all subcommands, global flags, per-subcommand flags, and static choices. Dynamic values (stage names, document IDs, agent tools) are not available through the static script; they fall back to default file completion.
+This method covers all subcommands, global flags, per-subcommand flags, and static choices. Dynamic values (stage names, document IDs, harnesses) are not available through the static script; they fall back to default file completion.
 
 ## Comparison
 
@@ -52,7 +52,7 @@ This method covers all subcommands, global flags, per-subcommand flags, and stat
 | Subcommands | yes | yes |
 | Flags | yes | yes |
 | Static choices | yes | yes |
-| Agent tools | yes | no |
+| Harnesses | yes | no |
 | Stage names | yes | no |
 | Document IDs | yes | no |
 | Task IDs | no | no |

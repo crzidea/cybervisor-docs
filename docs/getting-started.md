@@ -28,9 +28,10 @@ cybervisor --version
 
 ---
 
-## 2. Choose Your Agent
+## 2. Choose Your Harness
 
-Set the default agent tool. Options are `claude`, `codex`, `opencode`, `cursor`, `antigravity`, or `mock`:
+Set the default harness. Options are `claude`, `codex`, `opencode`, `cursor`,
+`antigravity`, or `mock`:
 
 ```bash
 cybervisor use claude
@@ -46,12 +47,17 @@ cybervisor use mock
 
 ## 3. Configure Verifier Credentials (Non-Mock)
 
-Mock mode needs no credentials. For real agents, the `llm.api_key` field in `~/.cybervisor/config.yaml` is only required when at least one effective stage that uses model-assisted stop verification (a non-contract stage) is assigned to a non-mock adapter. Contract-enabled stages validate their result artifacts locally and do not invoke the verifier, so a contract-only stage slice can run without `llm.api_key`. The selected agent may still need its own credentials — `llm.api_key` is a separate verifier setting, not an agent credential.
+Mock mode needs no credentials. For real harnesses, `llm.api_key` in
+`~/.cybervisor/config.yaml` is required only when an effective non-contract
+stage uses model-assisted stop verification. Contract-enabled stages validate
+their result artifacts locally, so a contract-only slice can run without this
+key. The selected harness may still need separate credentials; `llm.api_key`
+configures the verifier, not the coding runtime.
 
 ```bash
 mkdir -p ~/.cybervisor
 cat > ~/.cybervisor/config.yaml <<'EOF'
-agent_tool: claude
+harness: claude
 llm:
   api_key: your-api-key
   # Optional:
@@ -67,36 +73,29 @@ Verify connectivity:
 cybervisor doctor
 ```
 
-### Per-Stage Model Override (`stage_models`)
+### Runtime Defaults and Per-Stage Overrides
 
-To use a different agent tool model for specific stages, add a top-level `stage_models` mapping to `~/.cybervisor/config.yaml`:
+Set the global harness and optional effort default, then group stage-specific
+changes under `stage_overrides`:
 
 ```yaml
-agent_tool: claude
+harness: claude
+model_effort: medium
 llm:
   api_key: your-api-key
-  model: gpt-4o
 
-stage_models:
-  Spec: "claude-sonnet-4-6"
-  "Review Code": "claude-opus-4-6"
+stage_overrides:
+  Plan:
+    harness: codex
+    model: gpt-5.6
+    effort: xhigh
+  Review Code:
+    effort: high
 ```
 
-Each key is a stage name (case-sensitive, matching `cybervisor.yaml`); the value is the model identifier to use for that stage. Stages not listed fall back to the agent tool's default model. The verifier always uses `llm.model` globally.
-
-### Per-Stage Agent Override (`stage_agents`)
-
-To use a different agent tool for a specific stage, add a top-level `stage_agents` section in `~/.cybervisor/config.yaml`:
-
-```yaml
-# ~/.cybervisor/config.yaml
-agent_tool: claude
-stage_agents:
-  "Plan": codex
-  "Review Plan": codex
-```
-
-Each key is a stage name (case-sensitive, matching `cybervisor.yaml`); the value is the agent tool to use for that stage. Values must match a supported agent name (`claude`, `codex`, `opencode`, `cursor`, `antigravity`, `mock`). Stages not listed fall back to the global `agent_tool`. See [Configuration Reference — Global Config: stage_agents](configuration.md#stage-agents) for full details.
+Each override may set `harness`, `model`, `effort`, any subset, or nothing.
+See [Configuration Reference](configuration.md#global-harness-and-per-stage-runtime-overrides)
+for resolution order, supported efforts, reload behavior, and migration.
 
 ---
 
@@ -115,35 +114,43 @@ cybervisor init
 
 Both create a `cybervisor.yaml` with the full pipeline configuration.
 
-### The `mock` Agent
+### The `mock` Harness
 
-The `mock` agent (`cybervisor use mock`) requires no external binary or API key. It returns a canned success response for every stage, making it useful for CI testing, pipeline structure validation, and development without real agent access.
+The `mock` harness (`cybervisor use mock`) requires no external binary or API
+key. It returns a canned success response for every stage, making it useful for
+CI testing, pipeline structure validation, and development without real model
+access.
 
-### The `cursor` Agent
+### The `cursor` Harness
 
-The `cursor` agent uses the `cursor-sdk>=1.0.24` Python package, included as a
+The `cursor` harness uses the `cursor-sdk>=1.0.24` Python package, included as a
 Cybervisor dependency. The platform wheel bundles its own bridge launcher, so no
 `cursor-sdk-bridge` binary needs to be on `PATH`. Configure authentication only
 through the active Cybervisor config:
 
 ```yaml
-agent_tool: cursor
-agents:
+harness: cursor
+harnesses:
   cursor:
     api_key: your-cursor-api-key
 ```
 
 Environment variables and Cursor CLI login state are not used. Run
 `cybervisor doctor` to verify the SDK and API key. See the
-[Cursor Agent Guide](/agents/cursor.html) for complete setup details.
+[Cursor Harness Guide](/agents/cursor.html) for complete setup details.
 
-### The `claude` Agent
+### The `claude` Harness
 
-The `claude` agent uses the `claude-agent-sdk` Python SDK and runs in-process (no CLI binary needed). The SDK is included as a standard Cybervisor dependency — no separate install is required. Authentication requires a supported provider credential such as `ANTHROPIC_API_KEY`. Run `cybervisor doctor` to verify the adapter reports ready. See [Claude Code Agent Guide](/agents/claude.html) for full setup details.
+The `claude` harness uses the `claude-agent-sdk` Python SDK and runs in-process
+(no CLI binary needed). The SDK is included as a standard Cybervisor
+dependency, so no separate install is required. Authentication requires a
+supported provider credential such as `ANTHROPIC_API_KEY`. Run
+`cybervisor doctor` to verify the adapter reports ready. See the
+[Claude Code Harness Guide](/agents/claude.html) for full setup details.
 
-### The `antigravity` Agent
+### The `antigravity` Harness
 
-The `antigravity` agent requires the official `agy` CLI version 1.1.8 or
+The `antigravity` harness requires the official `agy` CLI version 1.1.8 or
 newer. Install it on macOS or Linux, then launch it once to sign in:
 
 ```bash
@@ -152,13 +159,19 @@ agy
 ```
 
 Cybervisor uses the CLI's headless `stream-json` mode and the user's normal
-Antigravity login. Model overrides from top-level `stage_models` are passed
-verbatim. See the [Antigravity Agent Guide](/agents/antigravity.html) for
+Antigravity login. Values from `stage_overrides.<stage>.model` are passed
+verbatim. See the [Antigravity Harness Guide](/agents/antigravity.html) for
 permission ownership, timeout configuration, cancellation, and troubleshooting.
 
-### The `opencode` Agent
+### The `opencode` Harness
 
-The `opencode` agent requires the `opencode` CLI on `PATH`, authenticated through your normal OpenCode CLI workflow, with serve mode support (`opencode serve` must be available; OpenCode v0.12.0 or later). Cybervisor checks `opencode serve --help` at pipeline start and during `cybervisor doctor` via adapter preflight. Each stage starts an isolated local `opencode serve` instance, injects model, permission, and file-context settings through `OPENCODE_CONFIG_CONTENT`, and does **not** create or modify `opencode.json` in your workspace. Use top-level `stage_models` in `~/.cybervisor/config.yaml` to override the model for specific OpenCode stages. See [Configuration Reference — OpenCode Notes](configuration.md#opencode-notes) for full setup details.
+The `opencode` harness requires the `opencode` CLI on `PATH`, authenticated
+through the normal OpenCode CLI workflow, with `opencode serve` support
+(OpenCode v0.12.0 or later). `cybervisor doctor` checks serve-mode support.
+Each stage starts an isolated local server and injects model, effort,
+permission, and file-context settings without modifying workspace config. Use
+`stage_overrides.<stage>.model` to override its model. See
+[OpenCode Notes](configuration.md#opencode-notes) for setup details.
 
 ---
 
@@ -173,7 +186,8 @@ uv tool install 'cybervisor[completions]'
 eval "$(register-python-argcomplete cybervisor)"
 ```
 
-Add the `eval` line to `~/.bashrc` to persist across sessions. This mode provides dynamic completions for stage names, agent tools, and document IDs.
+Add the `eval` line to `~/.bashrc` to persist across sessions. This mode
+provides dynamic completions for stage names, harnesses, and document IDs.
 
 **Static script (no dependencies):**
 

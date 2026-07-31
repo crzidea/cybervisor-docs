@@ -89,7 +89,13 @@ This is normal and expected. When a process exits between discovery and terminat
 
 ### Batch stops after one file fails
 
-This is expected behavior — `--path` stops on the first non-zero exit code so you can inspect and fix the problem before continuing. Files already moved to `completed/` are skipped on re-run.
+This is expected behavior. `--path` stops on the first non-zero exit code so
+you can inspect and fix the problem before continuing.
+
+- The failing plan stays at the top level.
+- Plans already queued or still being written remain untouched.
+- Files already moved to `completed/` are skipped on re-run.
+- A recovery invocation builds a new queue from the remaining ready plans.
 
 ```bash
 # Fix the issue, then re-run the same command
@@ -105,17 +111,57 @@ submitted in the current invocation.
 - Every later plan runs from the first configured stage with a fresh session.
 - `--end-after` and `--end-before` still apply to every plan in the batch.
 
+### Operator `end` stops the whole batch
+
+While `submit --path` is running, `cybervisor end --after <stage>` or
+`cybervisor end --before <stage>` is an operator halt, not a per-plan boundary.
+The current plan remains in the source directory, later plans are not
+submitted, and the batch exits successfully with status `0`. Re-run the batch
+when you want to process the retained plan.
+
+The submit-time flags are different: `submit --end-after` and
+`submit --end-before` apply to each plan, move each plan to `completed/`, and
+allow the batch to continue. A redundant operator `end` with the same active
+target does not change that behavior.
+
 ### `--path` directory has no `.md` files
 
-The `--path` directory must contain at least one `.md` file at the top level. Non-`.md` files are ignored, and subdirectories (including `completed/`) are not searched recursively.
+The initial discovery must find at least one ready `.md` file at the top level.
+Non-`.md` files are ignored, and subdirectories such as `completed/` are not
+searched recursively.
 
 ```bash
 ls prompts/*.md   # confirm .md files exist at the top level
 ```
 
+If a Markdown plan exists but the command still reports no ready files, it may
+have changed during the approximately 0.5-second readiness interval. Finish
+writing the file, wait briefly, and invoke the command again. For automation,
+write a temporary file and atomically rename it to its final `.md` name.
+
+### A changing plan was deferred
+
+A deferral message means the plan's size or modification time changed, or the
+file disappeared, between the two readiness observations. Cybervisor does not
+read or queue that candidate. It can join a later scan after it becomes stable.
+
+When the active queue is exhausted, only one final bounded scan is required.
+If the file is still unstable then, the command exits normally rather than
+watching forever. Run `submit --path` again after the file is complete.
+
+### A plan added after completion was not submitted
+
+The command stops after its queue is empty and a final readiness scan finds no
+new ready plan. A file published after `No pending plans remain` or after
+process exit belongs to the next invocation. Dynamic discovery is limited to
+an active batch; it is not a persistent directory watcher.
+
 ### Files are processed in the wrong order
 
-Files are sorted lexicographically by filename. Use zero-padded names for predictable ordering:
+The initial ready group is sorted lexicographically. Each later discovery group
+is also sorted, then appended behind every plan already waiting. A later plan
+never jumps ahead of the existing queue. Use zero-padded names for predictable
+ordering:
 
 ```
 01-first-task.md    # processed first

@@ -97,9 +97,11 @@ hook: {}
 verifier: {}
 ```
 
-The plural `hooks` key is unchanged. It still configures trusted
-`before_stage` and `after_stage` lifecycle commands. The verifier settings
-themselves remain under `llm` in `~/.cybervisor/config.yaml`.
+The plural `hooks` key still configures trusted `before_stage` and
+`after_stage` lifecycle commands in `cybervisor.yaml`. The active global
+configuration now accepts the same mapping as user-level defaults. Pipeline
+phase strings replace those defaults and phase-level `null` disables them.
+Verifier settings remain under `llm` in `~/.cybervisor/config.yaml`.
 
 Older releases could leave `.cybervisor/hooks/`, `hook_config.json`, snapshot
 files, or `.cybervisor/hook-events.sock` behind. The current release does not

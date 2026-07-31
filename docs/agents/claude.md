@@ -1,12 +1,17 @@
 ---
-title: Claude Code Agent Guide
+title: Claude Code Harness Guide
 ---
 
-# Claude Code Agent Guide
+# Claude Code Harness Guide
 
-> **Audience: Users** — Operators configuring or troubleshooting the Claude Code agent adapter.
+> **Audience: Users** — Operators configuring or troubleshooting the Claude Code harness adapter.
 
 The Claude Code adapter enables `cybervisor` to use Claude as a pipeline agent via the `claude-agent-sdk` Python package. It runs in-process (no CLI subprocess) and uses SDK-native options for autonomous, non-interactive operation.
+
+An effort resolved from global `model_effort` or
+`stage_overrides.<stage>.effort` is passed to the SDK. Claude supports `low`,
+`medium`, `high`, `xhigh`, and `max`; `minimal` is rejected before launch.
+Omitting effort preserves the SDK default.
 
 ---
 
@@ -27,9 +32,12 @@ The Claude Code adapter enables `cybervisor` to use Claude as a pipeline agent v
 
 The Claude adapter does not patch `.claude/settings.json` or install Claude
 Code callbacks:
-- Contract enforcement and verifier decisions remain Cybervisor-owned after the agent exits.
+- Contract enforcement and verifier decisions remain Cybervisor-owned. Cybervisor
+  evaluates each completed SDK turn while the session is alive and sends a
+  focused continuation prompt when the result is blocked.
 - Read-only path enforcement uses the shared Git-backed guard to detect protected Git-visible changes without restoring them.
-- Reply and contract evaluation runs directly in Cybervisor after the SDK exits.
+- The final reply and contract result are returned after the SDK session exits;
+  blocking decisions are evaluated between turns while the session remains alive.
 
 ### Permission Enforcement
 - **Disallowed Tools:** Tools that could block automation (e.g., `AskUserQuestion`, `EnterPlanMode`) are denied through SDK `disallowed_tools` options.
@@ -60,3 +68,12 @@ If a stage modifies a file matching its `read_only_paths` configuration, the pro
 
 ### Daemon cancellation
 The Claude adapter runs in-process via a background thread. When you run `cybervisor cancel`, the daemon cancels the running SDK worker task on its event loop thread and then joins the thread. Cancellation interrupts the in-flight SDK call so the async iteration unwinds cleanly, the SDK generators close without error, and the stage stops promptly with exit code 130 — the SDK thread does not continue after cancellation.
+
+### Continuation and sessions
+
+- A contract or verifier block can trigger another turn in the same Claude
+  session instead of restarting the stage.
+- Cybervisor allows up to 25 continuation turns for one stage attempt.
+- If a stage retry is needed later, Claude can reuse the captured session when
+  retry continuation is supported. The session identifier is also recorded in
+  `.cybervisor/logs/evaluation-events.jsonl` when evaluation runs.

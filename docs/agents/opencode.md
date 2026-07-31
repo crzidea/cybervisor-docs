@@ -1,12 +1,28 @@
 ---
-title: OpenCode Agent Guide
+title: OpenCode Harness Guide
 ---
 
-# OpenCode Agent Guide
+# OpenCode Harness Guide
 
-> **Audience: Users** — Operators configuring or troubleshooting the OpenCode agent adapter.
+> **Audience: Users** — Operators configuring or troubleshooting the OpenCode harness adapter.
 
 The OpenCode adapter enables `cybervisor` to use the OpenCode CLI as a pipeline agent. Unlike standard stdio/JSON-RPC adapters, it communicates over loopback HTTP via `opencode serve`. Each pipeline stage starts an isolated serve instance on an allocated port, runs a session, and shuts the server down upon completion. On retry, the adapter reuses the existing serve process and session instead of starting a new one, sending a continuation prompt that tells the agent to address the failure without restarting completed work.
+
+Cybervisor accepts all five normalized effort values and writes an explicit
+`reasoningEffort` into the generated runtime configuration. Where it is
+written depends on the resolved model:
+
+1. **Provider-qualified model** (for example `openai/gpt-5`): the option goes
+   under that provider's model options, so only the selected model is
+   affected.
+2. **Bare model name or no model**: there is no provider to key on, so the
+   option goes under every agent's options in the generated config.
+
+The option is never written at the top level of the config. The OpenCode
+config schema forbids unknown root keys, so a root-level `options` entry
+would make OpenCode reject the entire generated runtime configuration.
+
+Actual support remains provider dependent; provider errors are surfaced.
 
 ---
 
@@ -19,7 +35,9 @@ The OpenCode adapter enables `cybervisor` to use the OpenCode CLI as a pipeline 
 - Requires `uvx` on `PATH` (bundled with `uv`) for the yieldshell MCP server. If `uvx` cannot resolve `mcp-yieldshell`, the agent will have no shell tool available.
 
 ### Model Configuration and Overrides
-- **Custom Stage Model:** If `stage_models` overrides the model for an OpenCode stage, the adapter injects it through the `OPENCODE_CONFIG_CONTENT` environment variable.
+- **Custom Stage Model:** If a `stage_overrides` entry supplies a model for an
+  OpenCode stage, the adapter injects it through the
+  `OPENCODE_CONFIG_CONTENT` environment variable.
 - **Default Resolution:** If no override is specified, the adapter automatically resolves and propagates the user's default OpenCode model from global and project config files. This ensures the daemon matches the interactive model instead of falling back to the default `opencode/big-pickle`.
 - **Note:** Cybervisor does **not** create or edit `./opencode.json` or `./cybervisor/opencode.json` in the workspace; all overrides are injected dynamically via environment variables.
 

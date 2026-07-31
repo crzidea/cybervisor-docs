@@ -96,7 +96,7 @@ The stage visit retains one baseline across all retries.
    - For Antigravity, `agy` receives the prompt with `-p` and emits NDJSON on a
      separate stdout pipe from its stderr diagnostics.
 7. Streams agent output into stderr and the stage log file.
-8. Passes the collected reply and context to the adapter's
+8. Passes each completed turn's reply and context to the adapter's
    `evaluate_reply()`. Shared evaluation validates the contract first, then
    obtains a structured verifier decision. Blocking decisions continue the
    current session when supported or enter the normal retry path.
@@ -180,14 +180,16 @@ Cancellation behavior:
   - **Cancellation**: The active turn is interrupted first. If it remains
     blocked for five seconds, the SDK client transport is closed. Cancellation
     exits with code `130` and bypasses verifier continuation.
-  - **Configuration**: Threads receive full-access sandboxing, deny-all approval mode, the requested model, current working directory, and autonomous base instructions.
+  - **Configuration**: Threads receive full-access sandboxing, deny-all
+    approval mode, the requested model and effort, current working directory,
+    and autonomous base instructions.
   - **Permissions**: the shared Git-backed read-only guard is the sole
     authority for configured path subsets. Matching Git-visible changes fail
     the attempt and remain in the working tree. Git administration and ignored
     files are outside its scope.
 - **OpenCode**: Uses process-local runtime configuration only.
   - **Communication**: Communicates over HTTP via `opencode serve` (loopback binding with an allocated port), with a verify-and-continue loop that sends continuation prompts when the verifier blocks. Each stage starts an isolated local `opencode serve` instance, creates a session via `POST /session`, sends the prompt via `POST /session/:id/message`, streams events from `GET /event`, and shuts the server down on completion.
-  - **Model Selection**: Reads the user's OpenCode model configuration from global and project config files and injects the effective model via `OPENCODE_CONFIG_CONTENT`, which takes highest precedence in OpenCode's config resolution. Cybervisor `stage_models` overrides take precedence over the user default. Cybervisor does **not** create or modify `opencode.json` in the workspace. After session creation, the adapter verifies the model was applied by inspecting the session response and logs a WARNING if the active model differs.
+  - **Model Selection**: Reads the user's OpenCode model configuration from global and project config files and injects the effective model via `OPENCODE_CONFIG_CONTENT`, which takes highest precedence in OpenCode's config resolution. Cybervisor `stage_overrides` model values take precedence over the user default. Cybervisor does **not** create or modify `opencode.json` in the workspace. After session creation, the adapter verifies the model was applied by inspecting the session response and logs a WARNING if the active model differs.
   - **Permissions**: Generates native OpenCode permission configuration from `disallowed_tools` and `read_only_paths` and injects it via `OPENCODE_CONFIG_CONTENT`. It removes `"ask"` rules so Task subagent child sessions cannot deadlock. Disallowed tools and protected edits are native `deny` rules; unrestricted operations are native `allow` rules.
   - **Context Ingestion**: Disabled via:
     1. Setting `instructions` to an empty array in the runtime config.
@@ -200,7 +202,7 @@ Cancellation behavior:
 - **Cursor**: Uses the in-process `cursor-sdk>=1.0.24` adapter.
   - **Process Model**: The SDK `Agent` API is synchronous, so the adapter runs it on a worker thread and exposes a synchronous running handle to the pipeline.
   - **Prerequisites**: The `cursor_sdk` module must be importable. The platform wheel bundles its own bridge launcher under `cursor_sdk/_vendor/bridge/`, so no `cursor-sdk-bridge` binary needs to be on `PATH`.
-  - **Authentication**: Reads only `agents.cursor.api_key` from the active Cybervisor config. Ambient environment variables and external login state are not fallback sources.
+  - **Authentication**: Reads only `harnesses.cursor.api_key` from the active Cybervisor config. Ambient environment variables and external login state are not fallback sources.
   - **Communication**: Calls the SDK directly. Events cross from the worker through a thread-safe queue; no session protocol or JSON-RPC transport is involved.
   - **Message Translation**: Handles SDK message attributes defensively, tolerates absent or unfamiliar fields, and converts recognized replies, thinking, tool calls, completion events, session identifiers, and usage data into canonical events. Cursor extracts nested subagent `conversationSteps` from completed task tool results and renders them through the same canonical paths as top-level output.
   - **Tool Mapping**: Preserves Cursor's reported tool name while selecting a canonical formatter for known path, command, search, edit, task, and todo payloads.
@@ -218,9 +220,11 @@ Cancellation behavior:
     source lines become escaped diagnostic JSON records.
   - **Outcome**: Success requires exit code 0 and terminal status `SUCCESS`.
     The output is the terminal `response`.
-  - **Retry Continuation**: Captured conversation IDs are published through the
-    running handle. Retries use `--conversation`; an explicit unavailable
-    conversation outcome permits one fresh relaunch.
+   - **Continuation**: Captured conversation IDs are published through the
+     running handle. Blocking decisions relaunch `agy` with `--conversation`
+     and the repair prompt. An unavailable conversation stops the loop and
+     falls through to the normal failure path; it does not trigger a fresh
+     relaunch.
   - **Permissions**: The CLI receives
     `--dangerously-skip-permissions`. Cybervisor contracts, verifier decisions,
     and the shared Git-backed read-only guard remain authoritative.

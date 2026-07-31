@@ -6,7 +6,9 @@ title: Configuration Reference
 
 > **Audience: Users** — Pipeline operators and configuration authors.
 
-`cybervisor` is configured with a `cybervisor.yaml` file. The global agent and verifier settings reside in `~/.cybervisor/config.yaml`.
+`cybervisor` is configured with a `cybervisor.yaml` file. Global harness,
+verifier, and lifecycle-hook defaults reside in
+`~/.cybervisor/config.yaml`.
 
 ## Global Flags
 
@@ -17,19 +19,24 @@ title: Configuration Reference
 
 ## Global Configuration (`~/.cybervisor/config.yaml`)
 
-The global config file is created with `0o600` permissions (owner read/write only) to protect API keys and other sensitive credentials from being world-readable.
+The global config file is created with `0o600` permissions (owner read/write
+only) to protect API keys and other sensitive credentials from being
+world-readable.
 
-Manage the default agent with `cybervisor use <agent>`. Supported: `claude`, `codex`, `opencode`, `cursor`, `antigravity`, `mock`.
+Manage the default harness in the active global config with
+`cybervisor use <harness>`. Supported: `claude`, `codex`, `opencode`,
+`cursor`, `antigravity`, and `mock`. When a workspace-local config exists,
+the command updates that file rather than the home config.
 
 The `llm.api_key` field is required only for stages that need model-assisted
 post-run verification. Contract-enabled stages validate their result artifacts
 locally and do not invoke the verifier, so a contract-only stage slice does
-not require `llm.api_key`. The selected agent may still require its own
+not require `llm.api_key`. The selected harness may still require its own
 credentials independent of this setting.
 
 ## Stage executors
 
-Use `prompt` as the preferred spelling for an agent stage. The legacy
+Use `prompt` as the preferred spelling for an harness-backed stage. The legacy
 `prompt_template` spelling remains supported and resolves to the same prompt.
 Do not define both keys, including null-valued combinations.
 
@@ -45,24 +52,54 @@ routing cycle that includes a command stage because command stages cannot
 declare an iteration limit.
 
 Command-only effective slices are promptless and do not resolve or construct a
-default coding agent. They need neither an agent executable nor `llm.api_key`.
-Mixed pipelines keep normal agent selection for their agent stages.
+default coding harness. They need neither a harness executable nor
+`llm.api_key`. Mixed pipelines keep normal harness selection for their agent
+stages.
 
 ## Pipeline lifecycle hooks
 
-The root-only plural `hooks` mapping accepts `before_stage` and
-`after_stage`. Omission, `null`, and an empty mapping disable the feature.
-Each phase may also be `null`. A non-empty string is passed unchanged to the
-shell, so braces and text that resembles a placeholder remain literal.
+The plural `hooks` mapping accepts `before_stage` and `after_stage` in both the
+active global configuration and root of `cybervisor.yaml`. Global hooks are
+user-level defaults. Pipeline values retain whether each phase was omitted,
+set to a command, or explicitly set to `null`.
 
 ```yaml
+# ~/.cybervisor/config.yaml or .cybervisor/config.yaml
 hooks:
-  before_stage: scripts/stage-event.sh
-  after_stage: scripts/stage-event.sh
+  before_stage: scripts/user-stage-start.sh
+  after_stage: scripts/user-stage-finish.sh
 ```
 
-Do not place these fields on a stage. The root `verifier` mapping is separate
-from plural lifecycle `hooks`.
+```yaml
+# cybervisor.yaml
+hooks:
+  before_stage: scripts/project-stage-start.sh
+  after_stage: null
+```
+
+Resolution is independent for each phase:
+
+| Pipeline phase | Effective command |
+| --- | --- |
+| Omitted | Global command, when configured |
+| Non-empty string | Pipeline command replaces the global command |
+| Explicit `null` | Disabled, even when globally configured |
+
+An omitted, empty, or whole-mapping `null` pipeline `hooks` section configures
+no overrides and therefore inherits available global defaults. The same
+shapes in global configuration supply no defaults. Commands never chain: at
+most one command runs for each phase.
+
+At either surface, `hooks` must be a mapping or `null`, keys must be strings,
+and the only supported fields are `before_stage` and `after_stage`. Phase
+values must be non-empty strings or `null`; whitespace-only strings and other
+types are rejected. Command text is passed unchanged to the shell, so braces
+and text that resembles a placeholder remain literal.
+
+Global serialization emits `hooks` only when at least one command is present
+and omits absent phases. Running `cybervisor use <harness>` preserves these
+commands unchanged. Do not place lifecycle fields on an individual stage.
+The root `verifier` mapping remains separate from plural lifecycle `hooks`.
 
 ## Verifier configuration
 
@@ -108,20 +145,24 @@ idempotent and put stage-selective behavior inside the script. See the
 when updating a placeholder-based hook.
 
 ```yaml
-agent_tool: claude
+harness: claude
 llm:
   api_key: your-api-key
   base_url: https://api.openai.com/v1 # Optional
   model: gpt-4o                     # Optional
-agents:
+harnesses:
   cursor:
     api_key: your-cursor-api-key    # Required when Cursor is selected
 server:
   host: 127.0.0.1        # Interface to bind; use 0.0.0.0 to expose externally
   port: 8765            # WebSocket port for daemon mode
   reconnect_ttl_seconds: 300.0   # How long completed/disconnected tasks are retained for resume
-  max_event_buffer: 1000        # Maximum events buffered per task for replay
+   max_event_buffer: 1000        # Maximum events buffered per task for replay
 ```
+
+`harnesses` is the only credential-block key. If an existing config still has
+the legacy top-level `agents:` key, rename it to `harnesses:`; Cybervisor
+rejects the old key and reports both names so the migration is explicit.
 
 ### Server Settings
 
@@ -158,7 +199,14 @@ replaces `~/.cybervisor/config.yaml` when present. All settings, including
 `usage_recording` and `usage_reporting`, come from the workspace-local file.
 Pipeline configuration (`cybervisor.yaml`) has no CWD override.
 
-This precedence is honored on every stage-boundary reload, not just at task start, so editing or removing the workspace-local file mid-run takes effect at the next stage. If the workspace-local file is removed during a run, the next reload resolves `~/.cybervisor/config.yaml` without operator action. See [Runtime and Daemon — Per-Stage Config Reload](runtime-user.md#per-stage-config-reload) for full reload behavior.
+This precedence is honored on every stage-attempt reload, not just at task
+start. The files are not merged: a workspace-local file without `hooks`
+supplies no global hook defaults even when the home file defines them. Editing
+or removing the workspace-local file mid-run takes effect at the next attempt.
+If the workspace-local file is removed during a run, the next reload resolves
+`~/.cybervisor/config.yaml` without operator action. See
+[Runtime and Daemon — Per-Stage Config Reload](runtime-user.md#per-stage-config-reload)
+for full reload behavior.
 
 This is useful for teams that need project-specific verifier credentials or model overrides without modifying the global config.
 
@@ -187,10 +235,10 @@ The `usage_reporting` block configures optional per-stage usage telemetry to an 
 
 When enabled, Cybervisor sends one best-effort Elasticsearch request per
 finalized stage attempt. The remote event is built from the same normalized
-record as local accounting, including identity, workspace, executor, tool,
-model, status, duration, and all available token fields. Failed and interrupted
-attempts are included. Remote and local failures remain independent and never
-fail a pipeline stage.
+record as local accounting, including identity, workspace, executor, harness,
+model, model effort, status, duration, and all available token fields. Failed
+and interrupted attempts are included. Remote and local failures remain
+independent and never fail a pipeline stage.
 
 ```yaml
 usage_reporting:
@@ -201,20 +249,21 @@ usage_reporting:
   user: alice@example.com
 ```
 
-## Agent Configuration and Notes
+## Harness Configuration and Notes
 
-For detailed agent-specific configuration, prerequisites, authentication, and permission enforcement details, please consult the respective agent guides:
+For harness-specific prerequisites, authentication, configuration, and
+permission enforcement, consult the corresponding guide:
 
-- **[Claude Code Agent Guide](/agents/claude.html)**
-- **[Cursor Agent Guide](/agents/cursor.html)**
-- **[OpenCode Agent Guide](/agents/opencode.html)**
-- **[Antigravity Agent Guide](/agents/antigravity.html)**
-- **[Codex Agent Guide](/agents/codex.html)**
+- **[Claude Code Harness Guide](/agents/claude.html)**
+- **[Cursor Harness Guide](/agents/cursor.html)**
+- **[OpenCode Harness Guide](/agents/opencode.html)**
+- **[Antigravity Harness Guide](/agents/antigravity.html)**
+- **[Codex Harness Guide](/agents/codex.html)**
 
 ### Antigravity Notes
 
 The `antigravity` adapter requires `agy` 1.1.8 or newer on `PATH` and a
-completed interactive login. `stage_models` values pass through unchanged.
+completed interactive login. `stage_overrides` model values pass through unchanged.
 Cybervisor always uses the process-local
 `--dangerously-skip-permissions` override, keeps stdin closed, and never edits
 the Antigravity settings file. Set
@@ -223,12 +272,12 @@ override the one-hour default.
 
 ### Cursor Credentials
 
-The Cursor adapter reads its API key only from `agents.cursor.api_key` in the
+The Cursor adapter reads its API key only from `harnesses.cursor.api_key` in the
 active Cybervisor config:
 
 ```yaml
-agent_tool: cursor
-agents:
+harness: cursor
+harnesses:
   cursor:
     api_key: your-cursor-api-key
 ```
@@ -237,9 +286,10 @@ When `.cybervisor/config.yaml` exists in the workspace, it replaces the home
 config, so the Cursor key must be present there. Environment variables and
 Cursor CLI login state are not fallback credential sources.
 
-Changing the default agent with `cybervisor use <agent>` updates only
-`agent_tool`. The `agents` map, including `agents.cursor.api_key`, is preserved
-unchanged.
+Changing the default harness with `cybervisor use <harness>` updates only
+`harness`. It preserves `model_effort`, `stage_overrides`, the `harnesses` map
+(including `harnesses.cursor.api_key`), verifier settings, server settings, and
+usage settings.
 
 ## Scaffolding (`cybervisor init`)
 
@@ -260,7 +310,7 @@ When running `cybervisor run` or `cybervisor submit`, the task prompt is resolve
 1. **Positional argument** — `cybervisor run "Your task description"`
 2. **stdin** — `printf "Your task" | cybervisor run`
 3. **Config-driven promptless execution** — Command stages require no
-   objective. Agent stages are also promptless when their configured `prompt`
+   objective. Harness-backed stages are also promptless when their configured `prompt`
    does not reference `{objective}`.
 4. **Error** — If no prompt is provided and any stage still requires `{objective}`, the command exits with an error listing the stages that need a prompt.
 
@@ -278,7 +328,7 @@ cybervisor run --end-before "Verify"             # Stop before this stage (updat
 ```
 
 ### Self-Contained Config Flow Example
-If all active agent stages define a self-contained `prompt`, or the effective
+If all active harness-backed stages define a self-contained `prompt`, or the effective
 slice contains only commands, the positional prompt may be omitted:
 
 ```bash
@@ -302,13 +352,17 @@ cybervisor submit "ship the retry fix" --config self-contained.yaml --start-from
 
 ### `cybervisor doctor` (Readiness Checks)
 
-Validates `~/.cybervisor/config.yaml` connectivity and credentials, and checks that the selected agent adapter passes its preflight requirements (SDK importability, platform compatibility, authentication, and verifier config where applicable).
+Validates `~/.cybervisor/config.yaml` connectivity and credentials. It also
+checks that the selected harness passes its preflight requirements, including
+SDK importability or CLI availability, platform compatibility, authentication,
+effort support, and verifier config where applicable.
 
 - `Doctor: verifier ready` — Verifier credentials are valid.
-- `Doctor: adapter '<agent>' ready` — Selected agent adapter passes preflight checks.
+- `Doctor: harness '<name>' ready` — Selected harness adapter passes preflight checks.
 - `Doctor: verifier blocked` — Local configuration error (e.g., missing API key).
 - `Doctor: verifier needs attention` — Remote rejection (e.g., 401 Unauthorized).
-- `Doctor: adapter '<agent>' blocked` — Agent adapter preflight failed (e.g., missing SDK, unsupported platform, missing auth).
+- `Doctor: harness '<name>' blocked` — Harness preflight failed (for example,
+  missing runtime, unsupported effort, unsupported platform, or missing auth).
 
 ### `cybervisor validate` (Config Safety)
 Checks `cybervisor.yaml` for route safety and prompt synchronization.
@@ -316,32 +370,106 @@ Checks `cybervisor.yaml` for route safety and prompt synchronization.
 
 ## Stage Configuration
 
-### Global Config: `stage_agents`
+### Global Harness and Per-Stage Runtime Overrides
 
-Per-stage agent overrides live in `~/.cybervisor/config.yaml` (not in `cybervisor.yaml`) because they are a per-user runtime concern, not a pipeline-structure concern. Add a top-level `stage_agents` section to override the agent tool for specific stages:
+Runtime selection belongs in the active global config. Every field in a stage
+override is optional, and an empty override is valid.
 
 ```yaml
-# ~/.cybervisor/config.yaml
-agent_tool: claude
-stage_agents:
-  "Plan": codex
-  "Review Plan": codex
+harness: opencode
+model_effort: medium
+
+stage_overrides:
+  Plan:
+    harness: codex
+    model: gpt-5.6
+    effort: xhigh
+  Review Plan:
+    harness: codex
+    effort: high
+  Implement:
+    model: openai/gpt-5.6-codex
+    effort: high
+  Review Code:
+    effort: medium
 ```
 
-**Behavior:**
-- `stage_agents` is optional; absent means all stages use the global `agent_tool` default.
-- A stage name must match exactly (case-sensitive, per `StageConfig.name`). Unknown stage names are silently ignored at runtime.
-- Values are validated against supported agent names at config load time. Invalid values produce an error listing supported names.
-- The agent resolution order: `stage_agents[stage_name]` → global `agent_tool` default.
-- `cybervisor use <agent>` sets the global default only; it does not alter `stage_agents` entries.
+Configuration constraints:
 
-**Adapter compatibility:** All supported adapters enforce contracts and read-only
-paths. Claude uses Git-backed change detection without changing settings.
-OpenCode uses native permissions in `OPENCODE_CONFIG_CONTENT`. Cursor, Codex,
-and Antigravity use Git-backed detect-only enforcement. Antigravity invokes
-`agy` with a process-local permission override and never edits its persistent
-settings. Per-stage agent overrides work with any supported adapter without
-requiring persistent settings changes.
+- Override keys are case-sensitive stage names. A key must match the stage
+  name in `cybervisor.yaml` exactly to affect that stage.
+- Valid override fields are exactly `harness`, `model`, and `effort`; unknown
+  fields are rejected. A model must be a non-empty string.
+- Harness and effort names are normalized to lowercase. Override keys remain
+  case-sensitive, and model identifiers preserve their casing.
+- `stage_overrides: null` or an omitted mapping disables overrides. Use `{}`
+  for an intentionally empty stage entry; a null stage entry is invalid.
+
+Resolution happens independently for each harness-backed stage:
+
+1. Harness: `stage_overrides[stage].harness` then global `harness`.
+2. Model: `stage_overrides[stage].model` then the harness default.
+3. Effort: `stage_overrides[stage].effort`, global `model_effort`, then the
+   harness/model default.
+
+Command stages do not resolve or record any of these settings. Omitting a model
+or effort sends nothing, preserving the harness default.
+
+| Harness | Supported effort values |
+| --- | --- |
+| Codex | `minimal`, `low`, `medium`, `high`, `xhigh` |
+| Claude | `low`, `medium`, `high`, `xhigh`, `max` |
+| OpenCode | `minimal`, `low`, `medium`, `high`, `xhigh` (provider dependent) |
+| Antigravity | `low`, `medium`, `high` |
+| Cursor | None |
+| Mock | All five values |
+
+Effort values are opaque strings in global configuration. Each harness owns
+its supported set and rejects an unsupported explicit value when its stage is
+prepared. Cybervisor never silently drops it. Preflight checks the effective
+stage slice before the pipeline begins. For example, a global `model_effort`
+combined with a Cursor stage blocks the run unless that stage is outside the
+effective slice.
+
+After validation, stderr reports the stable settings for the attempt:
+
+```text
+[Implement] Harness: opencode, model: openai/gpt-5.6-codex, effort: high, config source: workspace-local
+```
+
+```mermaid
+flowchart LR
+    A[Stage attempt boundary] --> B[Reload active global config]
+    B --> C[Normalize legacy keys]
+    C --> D[Resolve effective hook pair]
+    D --> E{Executor type}
+    E -->|agent| F[Resolve and validate harness settings]
+    E -->|command| G[Skip agent construction]
+    F --> J{Harness model or effort changed?}
+    J -->|yes| I[Reset continuation state]
+    J -->|no| H[Launch with stable attempt snapshot]
+    I --> H
+    G --> H
+```
+
+Edits made during an attempt apply at the next attempt, stage, retry, or routed
+visit. The before and after phases within one attempt use the same captured
+effective hook pair. Changing only hooks does not reset retry continuation;
+changing the resolved harness, model, or effort does.
+
+#### Legacy migration
+
+For one deprecation window, Cybervisor reads these legacy keys and warns once
+per load: `agent_tool` or `agent` becomes `harness`; `stage_agents` becomes the
+per-stage `harness` field; and top-level `stage_models` becomes the per-stage
+`model` field. The older nested `llm.stage_models` key remains ignored; move
+those values into `stage_overrides`.
+
+`cybervisor use` rewrites runtime settings with canonical keys only. Different
+global legacy and canonical values are rejected. Defining a per-stage harness
+or model in both a legacy mapping and `stage_overrides` is also rejected, even
+when the values match. This normalization layer is planned for removal in the
+next breaking release.
 
 ### Self-Refining Review Loop Example
 This pattern enables autonomous correction loops without a separate fix stage.
@@ -491,26 +619,6 @@ When `Review Plan` completes successfully, the visit counters for `Review Code` 
 - Resets visit counters only; target stages keep their current failure retry counts (`max_retries`).
 
 See the full reference in [Pipeline Authoring Guide](pipeline-authoring.md#reset_iterations) for runtime semantics, logging, and event details.
-
-### Global Config: `stage_models`
-
-Add a top-level `stage_models` section in `~/.cybervisor/config.yaml` to override the agent tool model for specific stages. Keys are stage names (case-sensitive); values are model identifiers (e.g., `claude-sonnet-4-6`). The verifier always uses the global `llm.model`.
-
-```yaml
-# ~/.cybervisor/config.yaml
-agent_tool: claude
-llm:
-  api_key: "sk-..."
-  model: "gpt-4o"
-
-stage_models:
-  Spec: "claude-sonnet-4-6"
-  "Review Code": "claude-opus-4-6"
-```
-
-The previous `llm.stage_models` key is deprecated; if present, a warning is logged and the value is ignored. Migrate by moving `stage_models` to the top level.
-
-See the full reference in [Pipeline Authoring Guide](pipeline-authoring.md#stage_models) for resolution order and runtime behavior.
 
 ### Global Config: `disabled_skills`
 

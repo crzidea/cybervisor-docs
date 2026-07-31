@@ -27,7 +27,7 @@ Stage-attempt records contain:
 
 - run, task, and stage-attempt identifiers
 - workspace, stage, routed visit, and retry numbers
-- executor, effective agent tool, tool version, and model
+- executor, effective harness, harness version, model, and model effort
 - timestamps, monotonic duration (cleanup/hook/execution/continuation through
   completion), and terminal status (`success`, `failure`, `interrupted`,
   `cancelled`)
@@ -53,6 +53,9 @@ local history.
 
 Rows recorded before the canonical total was introduced retain their original
 provider convention. Cybervisor does not silently rewrite historical rows.
+When Cybervisor opens an older usage database, it migrates the schema
+automatically. Pre-migration attempts have no recorded model effort and appear
+under `default` when grouped by effort.
 
 ```mermaid
 flowchart LR
@@ -67,7 +70,7 @@ flowchart LR
 ## Querying history
 
 With no options, the command selects the current workspace, all recorded time,
-and groups attempts by stage and agent tool:
+and groups attempts by stage and harness:
 
 ```bash
 cybervisor usage
@@ -78,26 +81,27 @@ Common examples:
 ```bash
 cybervisor usage --all-workspaces --group-by workspace
 cybervisor usage --stage Implement --stage Verify
-cybervisor usage --agent-tool codex --executor agent
+cybervisor usage --harness codex --executor agent
+cybervisor usage --effort high --group-by model
 cybervisor usage --task-id TASK_ID --group-by task
 cybervisor usage --from 2026-07-01 --to 2026-07-31
 cybervisor usage --group-by date --period week
 ```
 
-Repeated stage and agent-tool filters use OR semantics. Different filter
-categories are combined with AND. Workspace paths are resolved to canonical
-absolute paths. A task-ID query searches all workspaces unless
+Repeated stage, harness, model, and effort filters use OR semantics within
+each category. Different categories are combined with AND. Workspace paths are
+resolved to canonical absolute paths. A task-ID query searches all workspaces unless
 `--workspace` is also supplied.
 
 Use `--executor agent` (default) or `--executor command`. Command executor
-mode cannot be combined with `--agent-tool`.
+mode cannot be combined with harness, model, or effort filters.
 
 `--period` is only valid with `--group-by date` (defaulting to `day`).
 Passing `--period` with another grouping is rejected.
 
-Grouping accepts `workspace`, `stage`, `agent-tool`, `stage,agent-tool`,
-`task`, and `date`. Date grouping accepts day, ISO week beginning Monday, or
-month periods.
+Grouping accepts `workspace`, `stage`, `harness`, `model`, `effort`, the
+corresponding `stage,...` pairs, `task`, and `date`. Date grouping accepts day,
+ISO week beginning Monday, or month periods.
 
 Rows are grouped from matching stage attempts. For each row:
 
@@ -116,7 +120,8 @@ times are rejected.
 
 Token counts are never estimated:
 
-- command stages have known-zero token usage and coverage is not applicable
+- command stages have known-zero token usage and coverage is not applicable;
+  their local and remote records omit or null harness, model, and effort
 - a token field no agent attempt reported is shown as `unknown`, not zero
 - a token field reported by only some attempts has one `(partial)` suffix
 - token-data availability is `0/n missing` when no agent attempt reported

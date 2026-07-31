@@ -1,11 +1,17 @@
 ---
-title: Antigravity Agent Guide
+title: Antigravity Harness Guide
 ---
 
-# Antigravity Agent Guide
+# Antigravity Harness Guide
 
 > **Audience: Users** — Operators configuring or troubleshooting the
-> Antigravity agent adapter.
+> Antigravity harness adapter.
+
+Antigravity supports `low`, `medium`, and `high` model effort through the
+native `agy --effort` flag. `minimal` and `xhigh` are rejected before launch;
+omitting effort leaves the CLI default untouched.
+Global configuration accepts arbitrary non-empty effort strings, while this
+harness-specific validation runs when an Antigravity stage is prepared.
 
 Cybervisor runs the official Antigravity CLI in headless mode. It requires
 `agy` version 1.1.8 or newer with `stream-json` output.
@@ -47,16 +53,20 @@ Cybervisor never migrates or modifies
 
 ## Models, timeouts, and conversations
 
-- A `stage_models` value is passed verbatim with `--model`. An invalid value
+- A `stage_overrides` model value is passed verbatim with `--model`. An invalid value
   fails loudly; Cybervisor never substitutes a default.
 - Headless runs use a one-hour print timeout by default.
 - Set `CYBERVISOR_ANTIGRAVITY_PRINT_TIMEOUT` to a positive number of seconds to
   override it. Values above 86,400 seconds are capped.
-- Eligible retries resume the captured conversation with
-  `--conversation <id>` and a continuation prompt.
-- If the CLI explicitly reports that the conversation is unavailable,
-  Cybervisor retries once with a fresh conversation. Authentication, model,
-  permission, and timeout errors do not trigger that fallback.
+- When a contract or verifier blocks a completed turn, Cybervisor relaunches
+  `agy` against the captured conversation with `--conversation <id>` and a
+  focused continuation prompt. This repairs the stage in-session rather than
+  immediately retrying the whole stage.
+- Eligible pipeline retries also resume the captured conversation. If the CLI
+  explicitly reports that the conversation is unavailable, Cybervisor stops
+  the continuation loop and uses the normal failure path. Authentication,
+  model, permission, and timeout errors do not trigger a fresh conversation.
+- A stage attempt allows up to 25 continuation turns.
 
 ## Live stream output
 

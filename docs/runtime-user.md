@@ -24,31 +24,36 @@ affected.
 
 When a stage attempt fails in a recoverable way and retry budget remains, Cybervisor can resume the previous agent session instead of starting a new one. This is called **retry continuation**. It preserves the agent's conversational context so the retry focuses on correcting the failure rather than restarting from the original prompt.
 
-- OpenCode and Antigravity support retry continuation. OpenCode reuses its
-  serve session; Antigravity passes the captured conversation ID through
-  `--conversation`. Both receive a focused continuation prompt.
+- Claude, OpenCode, and Antigravity support retry continuation. Claude resumes
+  its captured SDK session; OpenCode reuses its serve session; and Antigravity
+  passes the captured conversation ID through `--conversation`. All receive a
+  focused continuation prompt.
 - Adapters that do not support retry continuation fall back to the existing fresh retry behavior (new session, original prompt). Logs indicate when fallback occurs.
 - Retry counts and `max_retries` behavior are unchanged regardless of retry mode. Each retry attempt counts once toward the budget.
 - The `retry_mode` field in structured logs and daemon events distinguishes `fresh` (first attempt or unsupported adapter), `continued` (resumed session), and `fallback` (continuation attempted but unavailable).
 - This feature is distinct from `--start-from` (which starts a new pipeline at a chosen stage) and WebSocket client `resume` (which replays daemon events for a running task).
 
-**OpenCode idle timeout:** When an OpenCode session times out due to inactivity (no SSE events for the configured window), the adapter aborts the session and fails the current attempt with an `idle_timeout_failed` event. This is a recoverable failure that triggers retry continuation if retry budget remains. The adapter sends no recovery prompt and performs no force-stop loop. The pipeline's normal retry-continuation policy decides what happens next. See [OpenCode Agent Guide](agents/opencode.md#heartbeat-and-metadata-event-handling) for details.
+**OpenCode idle timeout:** When an OpenCode session times out due to inactivity (no SSE events for the configured window), the adapter aborts the session and fails the current attempt with an `idle_timeout_failed` event. This is a recoverable failure that triggers retry continuation if retry budget remains. The adapter sends no recovery prompt and performs no force-stop loop. The pipeline's normal retry-continuation policy decides what happens next. See [OpenCode Harness Guide](agents/opencode.md#heartbeat-and-metadata-event-handling) for details.
 
-**Antigravity unavailable conversations:** A fresh fallback occurs only when
-`agy` explicitly reports that the requested conversation is unavailable.
-Authentication, model, permission, timeout, and generic errors remain failures.
+**Antigravity unavailable conversations:** An in-session continuation stops
+when `agy` explicitly reports that the requested conversation is unavailable.
+Cybervisor then uses the normal failure path rather than looping or silently
+starting a fresh conversation. Authentication, model, permission, timeout,
+and generic errors remain failures.
 
 ### Pipeline lifecycle hooks
 
-Root lifecycle hooks run consistently in standalone, daemon, resumed, and
+Effective lifecycle hooks combine active global defaults with phase-level
+pipeline overrides. They run consistently in standalone, daemon, resumed, and
 sliced executions. Each applicable attempt follows this order:
 
-1. render the stage input
-2. emit stage start and perform configured cleanup
-3. run `before_stage`
-4. run the stage and resolve its final result
-5. run `after_stage`
-6. back up artifacts, complete, inject context, and route
+1. reload the active global file and capture effective hooks
+2. render the stage input
+3. emit stage start and perform configured cleanup
+4. run `before_stage`
+5. run the stage and resolve its final result
+6. run `after_stage`
+7. back up artifacts, complete, inject context, and route
 
 The hooks share the active stage's process-group cancellation and running
 handle. Cancelling a daemon task or interrupting a standalone run terminates
@@ -63,8 +68,9 @@ configured command, and available exit or error details. Existing WebSocket
 stage events report only the merged attempt result.
 
 Lifecycle hooks are trusted, unsandboxed commands that inherit the task
-environment. They can run more than once because of retries or routed visits.
-Use idempotent scripts and stage-name conditions for selective behavior.
+environment and can observe routed context. They can run more than once
+because of retries or routed visits. Use idempotent scripts and stage-name
+conditions for selective behavior.
 
 ### Resumed Stage Continuation
 
@@ -135,12 +141,37 @@ A background task runs a cleanup loop every `reconnect_ttl_seconds / 2` seconds.
 
 ### Per-Stage Config Reload
 
-Cybervisor reloads `~/.cybervisor/config.yaml` (or the workspace-local `.cybervisor/config.yaml`) before each stage starts, in both the standalone CLI (`cybervisor run`) and the daemon path (`cybervisor submit`). Workspace-local config is resolved relative to the current working directory — the `cwd` sent with the `submit` command for daemon tasks, or the process CWD for `cybervisor run`. Changes to `agent_tool`, `stage_agents`, `stage_models`, and `usage_reporting` take effect at the next stage boundary — operators can tune the config while a long autonomous task is running and the next stage will pick up the edit. The `cybervisor.yaml` stage graph is fixed for the active task. Server bind settings (`host`, `port`) are fixed for the lifetime of the daemon process and are not hot-reloaded.
+Cybervisor reloads `~/.cybervisor/config.yaml` (or the workspace-local
+`.cybervisor/config.yaml`) before every stage attempt, in both the standalone
+CLI (`cybervisor run`) and daemon path (`cybervisor submit`). The
+workspace-local config is resolved from the process CWD for `cybervisor run`
+and from the submitted `cwd` for daemon tasks. Global hook changes take effect
+at the next attempt, retry, stage, or routed visit. The resolved before and
+after commands remain fixed for the duration of that attempt.
 
-- **Invalid config fails fast at the next stage boundary.** A reload that produces an invalid config (for example, an unknown agent name in `stage_agents`) is treated as a stage setup failure: the affected stage is marked failed before any agent turn launches, and the pipeline does not silently fall back to the startup-time values. The stderr line `[<stage>] Runtime config reload failed: <message>` names the invalid key or value.
-- **Switching adapters resets retry continuation state.** When a reload causes a different adapter to be selected for a stage that is about to retry, the prior session state is cleared and the next attempt uses a fresh `RetryMode` against the new adapter.
+Agent stages also apply reloaded `harness`, `model_effort`,
+`stage_overrides`, and `usage_reporting`. Command stages consume the common
+hook snapshot but do not construct, preflight, resolve, or record an agent
+adapter. The `cybervisor.yaml` stage graph is fixed for the active task, and
+server bind settings (`host`, `port`) remain fixed for the daemon's lifetime.
+
+- **Invalid config fails fast at the next stage-attempt boundary.** A
+  reload that produces an invalid config (for example, an unknown harness name
+  in `stage_overrides`) is a stage setup failure. The stage fails before any
+  cleanup, hook, command, or agent turn launches; Cybervisor does not fall
+  back to startup-time values.
+  The stderr line `[<stage>] Runtime config reload failed: <message>` names the
+  invalid key or value.
+- **Runtime changes reset retry continuation state.** When a reload changes a
+  stage's resolved harness, model, or effort, the prior session state is
+  cleared and the next attempt starts fresh with the new settings.
 - **Same config is a no-op.** Reloading an identical effective config does not change adapter selection, preflight, or retry continuation state.
-- **Audit field in logs.** Each stage's `Running` log entry includes a `config_source` field set to `workspace-local` or `home` so operators can confirm which file was in effect for that stage attempt.
+- **Audit fields in logs and events.** After validation, the stage-start
+  stderr line, JSON `Running` entry, and daemon `stage_start` event identify
+  the effective `harness`, `model`, `model_effort`, and `config_source`.
+  The source is `workspace-local` or `home`, so operators can confirm which
+  file was active for that attempt. Native model and effort defaults remain
+  absent in structured data and render as `default` in stderr.
 
 ## Client Interaction
 
@@ -181,15 +212,25 @@ Tool calls render as `tool call: <ToolName>` followed by one indented parameter 
   recorded with an extra `dir_path` field.
 
 - **TodoWrite** entries list every item with its full subject text — no truncation on item count or subject length.
-- **Task** (subagent dispatch) prints the full `description` and `prompt` with `subject` as a rendered field. When an ACP adapter maps a subagent tool through the Task formatter, the first-line tool label may still show the agent’s name while the argument block includes the complete prompt. For Cursor, a completed task tool call can also expose the subagent's nested assistant text, thinking, and tool calls from the task result before the outer task result line. Empty, malformed, missing, or failed task results degrade safely — no content is fabricated and the stage continues normally.
+- **Task** (subagent dispatch) prints the full `description` and `prompt` with
+  `subject` as a rendered field. When an ACP adapter maps a subagent tool
+  through the Task formatter, the first-line label may still show the
+  agent's name while the arguments include the complete prompt. For Cursor, a
+  completed task call can also expose the subagent's nested assistant text,
+  thinking, and tool calls before the outer task result. Empty, malformed,
+  missing, or failed task results degrade safely; no content is fabricated,
+  and the stage continues normally.
 - **Edit** entries always show every parameter on its own indented line. `replacing:` and `with:` labels appear on their own line, with values on the following line(s) indented two spaces. Multiline content continues with two-space indentation per content line. There is no length truncation on `replacing` and `with` values.
 
 ## Batch Submit
 
-`cybervisor submit --path <dir>` processes all `.md` files in the given directory sequentially through the daemon. Each file's content is submitted as a separate task prompt.
+`cybervisor submit --path <dir>` submits ready, top-level `.md` files through
+the daemon one at a time. Each file's content becomes a separate task prompt.
+The active batch rescans after every successful task, so plans published while
+another task is running can join the same invocation.
 
 ```bash
-# Process all .md files in prompts/ one at a time
+# Process ready .md files in prompts/ one at a time
 cybervisor submit --path prompts/
 
 # With explicit task ID prefix (generates batch_1, batch_2, ...)
@@ -201,13 +242,36 @@ cybervisor submit --path prompts/ --config custom.yaml --start-from Implement --
 
 **Behavior:**
 
-- Only `.md` files are processed; other file types in the directory are ignored. Files are discovered non-recursively (subdirectories are not searched) and sorted lexicographically by filename. Use zero-padded names (e.g., `01-task.md`, `02-task.md`) for predictable ordering.
-- An empty directory (no `.md` files) or a nonexistent `--path` directory produces a validation error.
-- On success (exit code 0), the processed file is moved to `<path>/completed/`. The directory is created automatically.
-- On failure (non-zero exit), processing stops immediately. The failing file remains in its original location and no further files are processed.
+- Only top-level `.md` files are processed. Other file types and nested files
+  are ignored.
+- The initial group is sorted lexicographically by filename. Each group found
+  later is sorted and appended after plans already queued. Use zero-padded
+  names such as `01-task.md` and `02-task.md` for predictable ordering.
+- Before queueing a newly observed plan, Cybervisor checks that its size and
+  modification time remain unchanged for about 0.5 seconds. A changing or
+  disappearing file is deferred and remains eligible for a later scan.
+- Publish plans atomically when possible:
+  1. Write the complete content to a temporary non-`.md` file.
+  2. Rename it to its final `.md` name.
+- An invocation needs at least one ready plan initially. An empty directory,
+  an initial set containing only unstable plans, or a nonexistent directory
+  produces an actionable error.
+- On success, the processed file moves to `<path>/completed/`. The directory
+  is created automatically, and a same-named destination is replaced.
+- On failure, processing stops immediately. The failing plan and all queued or
+  unstable plans remain at the top level.
 - Files already in `completed/` are never re-processed.
-- `--path` and the positional `prompt` argument are mutually exclusive. When `--path` is provided, stdin is not read.
-- When `--task-id` is provided with `--path`, each file gets a unique ID with a `_N` suffix (1-indexed, e.g., `batch_1`, `batch_2`). When `--task-id` is omitted, each file gets an auto-generated ID.
+- A resolved source path is accepted at most once per invocation. Reusing the
+  same source name after it was processed waits for a later invocation.
+- When the queue empties, Cybervisor performs one final bounded readiness scan.
+  If that scan finds no ready plan, it logs `No pending plans remain` and exits.
+  This is finite batch behavior, not persistent watching. Plans published after
+  exit wait for the next command.
+- `--path` and the positional `prompt` argument are mutually exclusive. When
+  `--path` is provided, stdin is not read.
+- When `--task-id` is provided, submissions get a monotonic `_N` suffix across
+  initial and later discoveries, such as `batch_1`, `batch_2`, and `batch_3`.
+  Without it, each file gets an auto-generated ID.
 - `--start-from` and `--resume` apply only to the first file submitted in the
   current invocation.
   - Every later file starts at the first configured pipeline stage.
@@ -215,6 +279,32 @@ cybervisor submit --path prompts/ --config custom.yaml --start-from Implement --
 - Pipeline boundaries such as `--end-after` and `--end-before` continue to
   apply to every file in the batch.
 - `--end-after` and `--end-before` are mutually exclusive (this applies to all `submit` commands, not just `--path`).
+- An operator `cybervisor end --after <stage>` or `cybervisor end --before <stage>`
+  is different from the submit-time boundary flags. During a batch, it stops
+  the whole batch at the requested stage, leaves the halted plan in the source
+  directory, does not submit later plans, and exits `0`.
+- Submit-time `--end-after` and `--end-before` remain per-plan boundaries:
+  each plan is moved to `completed/` and the batch continues. Sending a
+  redundant operator `end` for the same active target does not halt the batch.
+
+```mermaid
+flowchart TD
+    A[Scan top-level Markdown plans] --> B[Observe size and modification time]
+    B --> C[Wait about 0.5 seconds once per group]
+    C --> D{Metadata unchanged?}
+    D -->|yes| E[Append sorted ready plans]
+    D -->|no| F[Defer plan to a later scan]
+    E --> G[Submit queue head]
+    G --> H{Task succeeded?}
+    H -->|yes| I[Move to completed and rescan]
+    H -->|no| J[Leave remaining plans and exit]
+    I --> K{Pending queue empty?}
+    K -->|no| G
+    K -->|yes| M[Run one fresh final scan]
+    M --> N{Ready plan found?}
+    N -->|yes| G
+    N -->|no| L[Exit successfully]
+```
 
 **Partial failure recovery:**
 
