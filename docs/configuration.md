@@ -21,7 +21,91 @@ The global config file is created with `0o600` permissions (owner read/write onl
 
 Manage the default agent with `cybervisor use <agent>`. Supported: `claude`, `codex`, `opencode`, `cursor`, `antigravity`, `mock`.
 
-The `llm.api_key` field is required only for stages that need model-assisted stop verification — that is, non-contract stages assigned to a non-mock adapter. Contract-enabled stages validate their result artifacts locally and do not invoke the verifier, so a contract-only stage slice does not require `llm.api_key`. The selected agent may still require its own credentials independent of this setting.
+The `llm.api_key` field is required only for stages that need model-assisted
+post-run verification. Contract-enabled stages validate their result artifacts
+locally and do not invoke the verifier, so a contract-only stage slice does
+not require `llm.api_key`. The selected agent may still require its own
+credentials independent of this setting.
+
+## Stage executors
+
+Use `prompt` as the preferred spelling for an agent stage. The legacy
+`prompt_template` spelling remains supported and resolves to the same prompt.
+Do not define both keys, including null-valued combinations.
+
+Stage names may contain normal text and spaces. They must not be `.` or `..`
+and must not contain path separators or control characters because Cybervisor
+uses them in generated artifact, backup, prompt, and log paths.
+
+Use `command` for a non-empty trusted shell string. A command stage cannot also
+define agent-only prompt, contract, iteration, artifact-hook, or read-only
+fields. It may define `max_retries`, `next_stage`, `cleanup`, and
+`backup_artifacts`. A `next_stage` route must not create a direct or indirect
+routing cycle that includes a command stage because command stages cannot
+declare an iteration limit.
+
+Command-only effective slices are promptless and do not resolve or construct a
+default coding agent. They need neither an agent executable nor `llm.api_key`.
+Mixed pipelines keep normal agent selection for their agent stages.
+
+## Pipeline lifecycle hooks
+
+The root-only plural `hooks` mapping accepts `before_stage` and
+`after_stage`. Omission, `null`, and an empty mapping disable the feature.
+Each phase may also be `null`. A non-empty string is passed unchanged to the
+shell, so braces and text that resembles a placeholder remain literal.
+
+```yaml
+hooks:
+  before_stage: scripts/stage-event.sh
+  after_stage: scripts/stage-event.sh
+```
+
+Do not place these fields on a stage. The root `verifier` mapping is separate
+from plural lifecycle `hooks`.
+
+## Verifier configuration
+
+Use `verifier: {}` in `cybervisor.yaml` when explicitly documenting that
+post-run verification is enabled for the pipeline. Credentials and endpoint
+settings remain in `~/.cybervisor/config.yaml` under `llm`; placing
+`api_endpoint`, `api_key`, or `model` inside `verifier` is rejected.
+
+```yaml
+verifier: {}
+```
+
+The former singular `hook:` key has been removed. Rename it to `verifier:`.
+Plural `hooks:` remains the lifecycle-command feature documented above.
+
+Cybervisor adds these variables to both hook phases:
+
+- `CYBERVISOR_HOOK_PHASE`, `CYBERVISOR_STAGE_NAME`, and
+  `CYBERVISOR_STAGE_EXECUTOR`
+- `CYBERVISOR_STAGE_ATTEMPT`, `CYBERVISOR_STAGE_MAX_RETRIES`,
+  `CYBERVISOR_STAGE_ITERATION`, and `CYBERVISOR_STAGE_MAX_ITERATIONS`
+- `CYBERVISOR_STAGE_SUCCESS`, `CYBERVISOR_STAGE_EXIT_CODE`, and
+  `CYBERVISOR_STAGE_ERROR`
+- `CYBERVISOR_WORKSPACE_ROOT` and `CYBERVISOR_OBJECTIVE`
+- `CYBERVISOR_ROUTED_CONTEXT_JSON`
+
+`CYBERVISOR_ROUTED_CONTEXT_JSON` is a JSON object. Its keys are routed context
+names and its values use Cybervisor's existing string representation. It is
+`{}` when no routed context is available. Before-stage result variables are
+empty. After-stage success is `true` or `false`; exit code and error remain
+empty when unavailable.
+
+Hooks execute from the workspace once per attempt and routed visit. Retries
+increment `attempt` while retaining the visit's `iteration_count`. Cleanup
+runs before the before hook. The after hook runs after the final stage result
+but before backup, completion, context injection, or routing.
+
+Pipeline lifecycle hooks execute trusted shell commands and inherit the user
+environment. Cybervisor's variables override inherited values with the same
+names. Hooks are not sandboxed and may repeat after failures. Keep them
+idempotent and put stage-selective behavior inside the script. See the
+[migration example](pipeline-authoring.md#migrating-placeholder-based-hooks)
+when updating a placeholder-based hook.
 
 ```yaml
 agent_tool: claude
@@ -69,13 +153,27 @@ cybervisor sandbox --docker               # Docker-in-Docker (socket mount + gro
 
 ### Workspace-Local Config Override
 
-A `.cybervisor/config.yaml` file in the current working directory completely replaces `~/.cybervisor/config.yaml` when present — all settings (verifier, `agent_tool`, `agents`, `stage_models`, `stage_agents`, `usage_reporting`, `server`, etc.) come from the workspace-local file, and the home-directory config is not loaded. Pipeline configuration (`cybervisor.yaml`) has no CWD override — it is always resolved from the project root.
+A `.cybervisor/config.yaml` file in the current working directory completely
+replaces `~/.cybervisor/config.yaml` when present. All settings, including
+`usage_recording` and `usage_reporting`, come from the workspace-local file.
+Pipeline configuration (`cybervisor.yaml`) has no CWD override.
 
 This precedence is honored on every stage-boundary reload, not just at task start, so editing or removing the workspace-local file mid-run takes effect at the next stage. If the workspace-local file is removed during a run, the next reload resolves `~/.cybervisor/config.yaml` without operator action. See [Runtime and Daemon — Per-Stage Config Reload](runtime-user.md#per-stage-config-reload) for full reload behavior.
 
 This is useful for teams that need project-specific verifier credentials or model overrides without modifying the global config.
 
 ### Usage Reporting
+
+Local task and stage-attempt accounting is enabled by default. Disable new
+writes without removing or disabling queries:
+
+```yaml
+usage_recording:
+  enabled: false
+```
+
+See [Local Usage Metrics](/usage-metrics.html) for stored fields, privacy,
+filtering, date, grouping, and coverage behavior.
 
 The `usage_reporting` block configures optional per-stage usage telemetry to an Elasticsearch endpoint. Reporting is disabled by default and never blocks pipeline success — failures are logged as warnings.
 
@@ -87,7 +185,12 @@ The `usage_reporting` block configures optional per-stage usage telemetry to an 
 | `index` | `cybervisor-usage` | Elasticsearch index/target for documents |
 | `user` | *(local username)* | Optional user identity sent in each usage document; when omitted, cybervisor uses the local system account name |
 
-When enabled, cybervisor sends one best-effort Elasticsearch request per completed stage. Each event includes user identity, agent name, stage name, model (when known), request count, status (`success` or `failure`), and a UTC timestamp. Token counts and run/task identifiers are included when available. Failures (network errors, bad credentials, missing endpoint) produce warnings but never fail a pipeline stage.
+When enabled, Cybervisor sends one best-effort Elasticsearch request per
+finalized stage attempt. The remote event is built from the same normalized
+record as local accounting, including identity, workspace, executor, tool,
+model, status, duration, and all available token fields. Failed and interrupted
+attempts are included. Remote and local failures remain independent and never
+fail a pipeline stage.
 
 ```yaml
 usage_reporting:
@@ -107,6 +210,16 @@ For detailed agent-specific configuration, prerequisites, authentication, and pe
 - **[OpenCode Agent Guide](/agents/opencode.html)**
 - **[Antigravity Agent Guide](/agents/antigravity.html)**
 - **[Codex Agent Guide](/agents/codex.html)**
+
+### Antigravity Notes
+
+The `antigravity` adapter requires `agy` 1.1.8 or newer on `PATH` and a
+completed interactive login. `stage_models` values pass through unchanged.
+Cybervisor always uses the process-local
+`--dangerously-skip-permissions` override, keeps stdin closed, and never edits
+the Antigravity settings file. Set
+`CYBERVISOR_ANTIGRAVITY_PRINT_TIMEOUT` to a positive number of seconds to
+override the one-hour default.
 
 ### Cursor Credentials
 
@@ -146,7 +259,9 @@ When running `cybervisor run` or `cybervisor submit`, the task prompt is resolve
 
 1. **Positional argument** — `cybervisor run "Your task description"`
 2. **stdin** — `printf "Your task" | cybervisor run`
-3. **Config-driven promptless execution** — If no prompt is provided and every stage in the effective slice has a self-contained `prompt_template` (one that does not reference `{objective}`), the task runs without an objective prompt using the configured templates.
+3. **Config-driven promptless execution** — Command stages require no
+   objective. Agent stages are also promptless when their configured `prompt`
+   does not reference `{objective}`.
 4. **Error** — If no prompt is provided and any stage still requires `{objective}`, the command exits with an error listing the stages that need a prompt.
 
 If a positional prompt argument is present, stdin is ignored even when piped.
@@ -163,7 +278,8 @@ cybervisor run --end-before "Verify"             # Stop before this stage (updat
 ```
 
 ### Self-Contained Config Flow Example
-If all active stages define an explicit `prompt_template`, the positional prompt may be omitted:
+If all active agent stages define a self-contained `prompt`, or the effective
+slice contains only commands, the positional prompt may be omitted:
 
 ```bash
 # Using stage templates (standalone)
@@ -219,7 +335,13 @@ stage_agents:
 - The agent resolution order: `stage_agents[stage_name]` → global `agent_tool` default.
 - `cybervisor use <agent>` sets the global default only; it does not alter `stage_agents` entries.
 
-**Hook compatibility:** All supported adapters enforce contracts and read-only paths. Claude uses post-hoc filesystem snapshots with no settings-file hooks. OpenCode uses native permissions in `OPENCODE_CONFIG_CONTENT`. Cursor uses snapshot-only post-hoc enforcement. Codex uses app-server permission interception and post-hoc filesystem snapshots. Antigravity uses SDK capabilities where supported with post-hoc enforcement as a backstop. Per-stage agent overrides work with any supported adapter without requiring settings-file hooks.
+**Adapter compatibility:** All supported adapters enforce contracts and read-only
+paths. Claude uses Git-backed change detection without changing settings.
+OpenCode uses native permissions in `OPENCODE_CONFIG_CONTENT`. Cursor, Codex,
+and Antigravity use Git-backed detect-only enforcement. Antigravity invokes
+`agy` with a process-local permission override and never edits its persistent
+settings. Per-stage agent overrides work with any supported adapter without
+requiring persistent settings changes.
 
 ### Self-Refining Review Loop Example
 This pattern enables autonomous correction loops without a separate fix stage.
@@ -231,7 +353,7 @@ stages:
   - name: Review Code
     max_iterations: 5
     max_iterations_next_stage: Verify
-    prompt_template: |
+    prompt: |
       Review the implementation and edit the code directly when focused fixes are needed.
       Do not use `APPROVED` status if this run edited any code or tests.
       Use `APPROVED` status only when the code is ready for verification and this run made no code or test edits.
@@ -265,7 +387,7 @@ stages:
 
 ### Stage Field: `backup_artifacts`
 
-Declare `backup_artifacts: [list, of, paths]` on any stage to automatically copy artifact files to `.cybervisor/backups/<stage_name>/<timestamp>/` after the stage completes successfully (passed hook verification and valid artifact validation). Backups are best-effort — missing source files are skipped with a warning and do not abort the pipeline.
+Declare `backup_artifacts: [list, of, paths]` on any stage to automatically copy artifact files to `.cybervisor/backups/<stage_name>/<timestamp>/` after the stage completes successfully (passes post-run evaluation and valid artifact validation). Backups are best-effort — missing source files are skipped with a warning and do not abort the pipeline.
 
 **Example:**
 ```yaml
@@ -278,7 +400,11 @@ stages:
 
 **Behavior:**
 - A stage with `backup_artifacts: []` or without the field performs no backup.
-- Relative paths are resolved against the task's working directory.
+- Paths must be relative children of the task workspace and must not contain
+  `..`.
+- Paths resolve against the submitting task's workspace in both standalone
+  and daemon mode. Sources or backup destinations that escape through
+  symbolic links are skipped.
 - Each successful stage completion creates a new timestamped backup directory (format: `YYYY-MM-DDTHH-MM-SS`, UTC). Previous backups are preserved — no overwrite.
 - `.cybervisor/backups/` is never wiped by the pipeline's artifact reset. `.cybervisor/artifacts/` cleanup is skipped when files are present, preserving pre-written or seeded artifacts across pipeline restarts.
 - Backup occurs only after successful stage completion — failures or retries do not trigger a backup.
@@ -287,13 +413,26 @@ See the full reference in [Pipeline Authoring Guide](pipeline-authoring.md#backu
 
 ### Stage Field: `keep_artifacts`
 
-Declare `keep_artifacts: [list, of, paths]` on any stage to block it if the named artifacts are missing at hook invocation. The hook checks `Path.exists()` for each path before allowing the stage to complete. Missing files produce a `block` decision with a remediation message directing the agent to recreate them.
+Declare `keep_artifacts: [list, of, paths]` on any stage to block it if the
+named artifacts are missing during post-run evaluation. Cybervisor checks
+`Path.exists()` before allowing the stage to complete. Missing files produce
+a `block` decision with a remediation message directing the agent to recreate
+them.
 
 See the full reference in [Pipeline Authoring Guide](pipeline-authoring.md#keep_artifacts) for path rules, deduplication, daemon-mode behavior, and failure-before-teardown isolation.
 
 ### Stage Field: `cleanup`
 
-Declare `cleanup: [list, of, paths]` on any stage to sweep files at the declared paths before the stage's agent starts. For directories, all contents (files, symlinks, and subdirectories) are removed recursively, preserving only the directory itself; regular files and symlinks are removed directly. Use `cleanup` on stages that produce their own artifacts and need a clean slate from a previous run (e.g., Spec to discard stale specs before regenerating). Avoid on stages that depend on upstream artifacts (e.g., Review, Implement, Verify), since sweeping would destroy the inputs the stage needs.
+Declare `cleanup: [list, of, paths]` on any stage to sweep files at the
+declared paths before the lifecycle before hook and stage executor. For
+directories, all contents are removed recursively while preserving the
+directory itself; regular files and symlinks are removed directly. A deletion
+failure fails the attempt and skips both lifecycle hooks and the executor.
+Use `cleanup` on stages that produce their own artifacts and need a clean
+slate. Avoid it on stages that depend on upstream artifacts.
+
+Cleanup paths must be relative children of the workspace root. The workspace
+root itself (`.`), absolute paths, and paths containing `..` are rejected.
 
 **Example:**
 ```yaml
@@ -424,18 +563,29 @@ stages:
 ```
 
 **Behavior:**
-  - When a stage has `read_only_paths` set, write protection is enforced per adapter: Claude uses post-hoc filesystem snapshots that detect and restore protected-file modifications after each stage; Cursor uses snapshot-only post-hoc enforcement after each SDK turn; OpenCode uses native permission deny rules in `OPENCODE_CONFIG_CONTENT`; Codex app-server snapshots matching files, restores protected changes after each turn, and fails the attempt; Antigravity uses SDK capabilities where supported and post-hoc snapshot enforcement after the agent run.
-- Each adapter enforces read-only protection through its own mechanism (post-hoc filesystem snapshots, native permission deny rules, or app-server interception — see the per-adapter list above). Enforcement details are adapter-specific and not a shared hook layer.
+- When a stage has `read_only_paths` set, Claude, Cursor, Codex, and
+  Antigravity share one Git-backed guard. OpenCode continues to use native
+  permission deny rules in `OPENCODE_CONFIG_CONTENT`.
+- The Git-backed guard protects tracked and untracked files visible to Git.
+  Git-ignored paths are intentionally outside its scope.
+- A pattern with an ignored or uncovered static prefix produces a warning that
+  names the pattern and is skipped. Other covered patterns remain active.
+- Detected changes fail the attempt and remain in the working tree; Cybervisor
+  never restores or deletes them.
+- Independent nested repositories are resolved from the protected prefix, even
+  when an outer repository ignores them.
 - When `read_only_paths` is empty or absent for a stage, no adapter-level read-only enforcement is active for that stage.
 - Adapter-level read-only enforcement is per-stage: stages with `read_only_paths` get write protection; stages without it run without enforcement.
 - When `read_only_paths` is non-empty, the pipeline runner also appends a read-only-paths section to the stage prompt listing each pattern and instructing the agent not to modify matching files. This reduces wasted tool-call budget on writes that would be blocked anyway. The section appears after the injection appendix (if any) and before contract guidance.
-- The `Stop` / `AfterAgent` verifier hook continues to work independently.
+- Post-run verifier evaluation continues to work independently.
 
 **Validation rules:**
 - Each entry must be a non-empty, relative path string. Patterns use path-segment glob matching: `*` matches within one path segment, while `**` matches zero or more path segments. For example, `src/*.py` matches `src/foo.py`, `src/**/*.py` also matches `src/sub/bar.py`, and `src/**` matches everything under `src/`.
 - Absolute paths and paths containing `..` are rejected at config validation time.
 - Patterns are resolved relative to the workspace root.
-- If a `read_only_paths` pattern matches a `keep_artifacts` entry for the same stage, a warning is emitted because the hook will block writes to files the stage expects to be present.
+- If a `read_only_paths` pattern matches a `keep_artifacts` entry for the same
+  stage, a warning is emitted because enforcement may block writes to files
+  the stage expects to be present.
 
 **Migration:** The top-level `read_only_paths` key and the previous `protected_paths` key are no longer accepted. If either is present, a validation error is raised with a migration hint. Move `read_only_paths` into individual stage definitions in your `cybervisor.yaml`.
 

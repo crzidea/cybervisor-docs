@@ -4,9 +4,22 @@ title: Runtime and Daemon (Developer Reference)
 
 # Runtime and Daemon (Developer Reference)
 
-> **Audience: Developers** — Contributors extending the runtime, adapters, or hook system.
+> **Audience: Developers** — Contributors extending the runtime, adapters, or
+> stage evaluation.
 
 ## Pipeline Lifecycle
+
+Command stages branch before adapter and model resolution. The runner renders
+their context and directly starts `/bin/sh` behavior through a shell string in
+the workspace root. It closes stdin, merges stdout and stderr, and places the
+shell in a new process session. Captured output is written directly to the
+stage log rather than passing through agent event normalization.
+
+The command handle owns the shell PID and process-group ID. Standalone signals
+and daemon cancellation therefore use the same escalation path as subprocess
+adapters. The command path performs no adapter preparation, continuation,
+post-run evaluation, skill movement, or read-only guard work. Pure-command
+slices can initialize the runner with no agent object.
 
 For `claude`, `codex`, `opencode`, `cursor`, and `antigravity` runs, `cybervisor` performs the following lifecycle:
 
@@ -15,85 +28,116 @@ graph TD
     Start([Pipeline Start]) --> Preflight[1. Preflight Checks]
     Preflight --> RestoreSkills[2. Restore Leftover Skills]
     RestoreSkills --> MoveDisabled[3. Move Disabled Skills]
-    MoveDisabled --> WriteMetadata[4. Write Hook Runtime Metadata]
-    WriteMetadata --> SnapSettings[5. Settings Snapshot]
-    SnapSettings --> PatchSettings[6. Patch Tool Settings]
-    
+    MoveDisabled --> BuildContext[4. Build Stage Evaluation Context]
+
     subgraph LoopStage ["For Each Stage"]
-        InstallReadOnly[7. Install Stage Read-only Paths] --> LaunchAgent[8. Launch Agent Subprocess/Thread]
-        LaunchAgent --> AgentRun{9. Agent Action / Hook Decision}
-        AgentRun -- Autonomy request --> ClassifyDecision[Classify: Approve / Block]
-        ClassifyDecision --> AgentRun
-        AgentRun -- Completion requested --> ValidateContract[10. Validate Stage Contract]
-        ValidateContract -- Invalid --> AgentRun
-        ValidateContract -- Valid --> StreamOutput[11. Stream Stderr/Stage Log]
-        StreamOutput --> TerminateAgent[12. Finish Agent Process/Thread]
-        TerminateAgent --> CheckRoutes[13. Re-validate & Route Next Stage]
-        CheckRoutes --> CleanDescendants[14. Terminate Descendant Processes]
+        InstallReadOnly[5. Prepare Read-only Guard] --> LaunchAgent[6. Launch Agent]
+        LaunchAgent --> StreamOutput[7. Stream Stderr and Stage Log]
+        StreamOutput --> Evaluate[8. Evaluate Reply with Context]
+        Evaluate --> Contract{Contract Valid?}
+        Contract -- No --> Continue[Continue Existing Session or Retry]
+        Continue --> LaunchAgent
+        Contract -- Yes --> Verify{Verifier Approves?}
+        Verify -- No --> Continue
+        Verify -- Yes --> CheckRoutes[9. Validate and Route]
+        CheckRoutes --> CleanDescendants[10. Terminate Descendants]
     end
-    
-    PatchSettings --> InstallReadOnly
+
+    BuildContext --> InstallReadOnly
     CleanDescendants -- Next Stage --> InstallReadOnly
-    CleanDescendants -- Pipeline Finished / Aborted --> RestoreMoved[15. Restore Moved Skills]
-    
-    RestoreMoved --> CleanOrphans[16. Terminate Remaining Orphans]
-    CleanOrphans --> RestoreEnv[17. Restore Settings & Remove Runtime Files]
-    RestoreEnv --> End([Pipeline End])
+     CleanDescendants -- Pipeline Finished / Aborted --> RestoreMoved[11. Restore Moved Skills]
+
+    RestoreMoved --> CleanOrphans[12. Terminate Remaining Orphans]
+    CleanOrphans --> End([Pipeline End])
 ```
 
 1. Performs preflight checks.
 2. Restores any skills left in `.cybervisor/backups/skills/` from a previous unclean shutdown (see [Skill Disable/Restore in User Guide](runtime-user.md#skill-disablerestore)).
 3. Moves skills listed in `disabled_skills` from the project-local skills directory to `.cybervisor/backups/skills/<adapter>/`.
-4. Writes shared hook runtime metadata into `.cybervisor/hooks/`.
-5. Persists an exact settings snapshot in `.cybervisor/hooks/`.
-6. Patches the active tool settings file (for adapters that use native hook settings) so the selected agent invokes the packaged `cybervisor-agent-hook` entry point:
-   - Verifier/stop hook only.
-   - The tool-use hook for write protection is managed per-stage, not at pipeline start.
-   - The Claude adapter does not patch any settings file.
-7. For each stage, before the agent starts: if the stage defines `read_only_paths`, installs read-only enforcement for that adapter.
-   - Claude and Antigravity enforce read-only paths via post-hoc filesystem snapshots (`ACPReadOnlySnapshot`) that detect and restore protected-file modifications after each turn.
-   - Cursor uses snapshot-only post-hoc enforcement after each synchronous SDK turn. The SDK exposes no native pre-write permission control.
+4. Builds an immutable `StageEvaluationContext` for the attempt. It carries
+   the selected agent, workspace, stage prompt, contract, retry counters, and
+   evaluation event-log path directly to the adapter.
+5. For each stage, before the agent starts: if the stage defines
+   `read_only_paths`, prepares read-only enforcement for that adapter.
+   - Claude and Antigravity use the shared Git-backed guard, which detects
+     protected Git-visible changes without restoring them.
+   - Cursor uses Git-backed detect-only enforcement after each synchronous SDK turn. The SDK exposes no native pre-write permission control.
    - OpenCode enforces read-only paths through native permission deny rules in `OPENCODE_CONFIG_CONTENT`.
-   - Codex app-server snapshots protected files before the turn and restores/fails on protected filesystem changes after the turn.
+   - Codex SDK stages use the same anchored baseline and fail on protected
+     changes after each turn.
    - If the stage has no `read_only_paths`, skips adapter-level enforcement so the stage runs without it.
-   - This per-stage lifecycle means design stages get write protection while implementation stages run without the hook.
-8. Starts the agent in a dedicated process group when supported:
+   - This per-stage lifecycle means design stages can get write protection
+     while implementation stages run without enforcement.
+
+Repository ownership is resolved from each configured pattern rather than from
+the workspace root:
+
+```mermaid
+flowchart TD
+    Pattern[Workspace-relative pattern] --> Prefix[Literal static prefix]
+    Prefix --> Existing[Nearest existing ancestor]
+    Existing --> Owner[Nearest Git top-level]
+    Prefix --> Scan[Pruned nested-repository scan]
+    Owner --> Coverage[Repository-relative pathspecs]
+    Scan --> Coverage
+    Coverage --> Status[Git status plus dirty-path hashes]
+    Status --> Match[Shared workspace glob matcher]
+    Match --> Report[Detect and report without restoration]
+```
+
+Git-ignored paths are intentionally outside protection. An uncovered or
+ignored prefix produces a warning naming the exact pattern and is skipped.
+The stage visit retains one baseline across all retries.
+6. Starts the agent in a dedicated process group when supported:
    - For Claude, the prompt is passed to the `claude-agent-sdk` `query()` function via an in-process background thread.
-   - For Codex, the prompt is delivered through its app-server protocol.
+   - For Codex, the prompt is delivered through the synchronous `openai-codex` SDK.
    - For Cursor, the prompt is passed to the synchronous `cursor-sdk` API on a worker thread.
    - For OpenCode, the prompt is sent via HTTP to the serve instance.
-   - For Antigravity, the prompt is passed to the in-process SDK `Agent` via a background thread.
-9. Uses the runtime hook to classify autonomy decisions as `approve` or `block`, then adapts those into the selected tool's native hook output so the agent continues autonomously.
-10. If the active stage declares a contract, uses the same hook runtime to block completion until the required artifact exists and is structurally valid.
-11. Streams agent output into stderr and the stage log file.
-12. Subprocess transports terminate the agent process with bounded timeouts via `terminate_process()` (from `cybervisor.adapters._process`):
+   - For Antigravity, `agy` receives the prompt with `-p` and emits NDJSON on a
+     separate stdout pipe from its stderr diagnostics.
+7. Streams agent output into stderr and the stage log file.
+8. Passes the collected reply and context to the adapter's
+   `evaluate_reply()`. Shared evaluation validates the contract first, then
+   obtains a structured verifier decision. Blocking decisions continue the
+   current session when supported or enter the normal retry path.
+9. Re-validates contract artifacts after agent exit, then routes by contract
+   status or explicit `next_stage` when configured.
+10. Subprocess transports terminate the agent process with bounded timeouts via `terminate_process()` (from `cybervisor.adapters._process`):
     - Close stdin.
     - Wait up to 5 seconds for a graceful exit.
     - Send SIGTERM and wait up to 2 seconds.
     - Send SIGKILL and wait up to 5 seconds.
     - The OpenCode serve transport also uses `terminate_process()` for cleanup.
-    - The Antigravity adapter does not use `terminate_process()` — the in-process SDK agent runs on a background thread that completes when the event loop finishes; cancellation sets a stop event that the thread checks between SDK operations.
+    - Antigravity sends SIGINT to its `agy` process group first, then uses
+      `terminate_process()` for bounded escalation.
     - The Cursor adapter runs its synchronous SDK agent on a worker thread. Cancellation sets a stop event, requests SDK cancellation when available, and joins the worker with a bounded watchdog.
     - The Claude adapter uses `claude-agent-sdk` `query()` in a background thread with its own asyncio event loop; the SDK run completes when the query generator is exhausted.
     - If a subprocess turn loop raises an exception, `terminate_process()` is called in the error path before the exception propagates. In-process adapters cancel via stop events or thread completion.
-13. Re-validates contract artifacts after agent exit, then routes by contract status or explicit `next_stage` when configured.
-14. Terminates the agent's descendant processes via `SignalHandler.terminate_descendants()`:
+11. Terminates the agent's descendant processes via `SignalHandler.terminate_descendants()`:
     - Sends SIGTERM to the process group (or individual PID on Windows).
     - Waits up to 2 seconds.
     - Sends SIGKILL to survivors.
     - Falls back to individually tracked child PIDs.
     - This runs in the `execute_stage()` finally block as a defense-in-depth safety net after adapter-level process termination.
-15. Restores moved skills from `.cybervisor/backups/skills/` to their original project-local directories.
-16. After the full pipeline loop, runs `SignalHandler.terminate_remaining_descendants()` as a safety net (CLI mode only; the daemon path relies on per-stage cleanup because it may host concurrent tasks):
+12. Restores moved skills from `.cybervisor/backups/skills/` to their original project-local directories.
+13. After the full pipeline loop, runs
+    `SignalHandler.terminate_remaining_descendants()` as a safety net. This is
+    CLI-only; the daemon relies on per-stage cleanup because it may hold
+    multiple accepted tasks while executing them serially.
     - Walks the process tree via `psutil.Process(os.getpid()).children(recursive=True)` to discover and terminate any orphans that escaped stage-level cleanup.
-17. Restores settings and removes runtime files on success, failure, or interrupt.
+14. Removes only process-owned runtime state on success, failure, or interrupt.
+    Agent settings files are never patched or restored by Cybervisor.
 
 ## Live stderr and canonical events
 
 All adapters emit canonical log events through `stream_logging`. Each stderr line is prefixed with `[StageName][adapter_name]`, where `adapter_name` is the canonical lowercase `descriptor.name` (for example `claude`, `codex`). Never use `display_name` for log prefixes — it is reserved for product-facing prose. The three canonical event kinds are:
 
 - **`reply:`** — Visible assistant text. Claude `TextBlock` and stream-json text are classified as `reply`. Multiline replies render as `reply:` on its own line, a blank line, then the body lines indented two spaces, with a blank line before the next log entry. Each content line keeps its original leading whitespace from the agent output, so code blocks, nested lists, and other indented structures keep their shape. Single-line replies use the inline format `reply: text`.
-- **`thinking:`** — Internal model reasoning. Claude `ThinkingBlock` and OpenCode reasoning text are classified as `thinking`. Multiline thinking uses the same blank-line-and-indent format as replies, with original leading whitespace preserved per content line. Single-line thinking uses `thinking: text`.
+- **`thinking:`** — Internal model reasoning. Claude `ThinkingBlock`, Codex
+  reasoning summaries or content, and OpenCode reasoning text are classified as
+  `thinking`. Multiline thinking uses the same blank-line-and-indent format as
+  replies, with original leading whitespace preserved per content line.
+  Single-line thinking uses `thinking: text`.
 - **`tool call:`** — Tool invocations. Tool calls render as `tool call: <ToolName>` followed by one indented `field:` label line per parameter. Multiline values show the field name on its own line with content indented below. No rendered parameter is truncated or capped at a fixed number of fields.
 
 Protocol adapters and in-process SDK adapters emit canonical log events. Adapter-local `tool_mapping.py` modules define how each agent's tool kinds, titles, content types, and argument field names select shared formatters before events reach `stream_logging`.
@@ -111,24 +155,37 @@ Key behaviors:
 The `RunningProcess` protocol requires a `cancel()` method.
 
 Cancellation behavior:
-- For subprocess-based adapters (Codex and OpenCode), `cancel()` is a no-op or delegates to process-group termination.
+- For subprocess-based adapters such as OpenCode, `cancel()` delegates to process-group termination.
+- Codex interrupts the active SDK turn. A daemon watchdog closes the SDK client
+  transport if the turn remains blocked, which terminates the bundled runtime
+  and unblocks the notification reader.
 - For in-process adapters, `cancel()` stops the background SDK worker and joins the thread with a bounded timeout:
   - **Claude** cancels the running SDK task on its event loop thread (`loop.call_soon_threadsafe(task.cancel)`). Cancelling at the suspended `await` unwinds the `async for` and closes the SDK async generators cleanly, avoiding the `aclose(): asynchronous generator is already running` error that a between-iteration flag can trigger. A stop event remains as a fallback for the startup race before the task exists.
-  - **Cursor** and **Antigravity** set a `threading.Event` that the SDK thread checks between iterations.
+  - **Cursor** sets a `threading.Event` that the SDK thread checks between
+    iterations.
+- **Antigravity** sends SIGINT to the `agy` process group so the CLI can emit
+  its terminal interrupted result before bounded escalation.
 - When a daemon cancel request arrives, the handler sets the task's cancel event, optionally delivers SIGINT, and calls `handle.cancel()` on the active running handle.
 - This cooperative path ensures in-process SDK work stops promptly rather than continuing after the daemon has marked the task as cancelled.
 
 ## Adapter Compatibility
 
-- **Codex**: The Codex app-server transport requires continuous stdin access for JSON-RPC messages.
-  - **Communication**: The Codex adapter does not use the stdin-prompt-write path and instead communicates through the app-server protocol. It sends `initialize`, follows with the required `initialized` notification, and only then starts a thread.
-  - **Turn Lifecycle**: The `turn/start` response supplies the active turn ID. Item and completion notifications must match both the active thread and turn. Live `item/completed` notifications provide final assistant text; `turn/completed` provides the authoritative terminal status and may use `itemsView: notLoaded` with an empty item list.
-  - **Terminal Status**: Only `completed` turns with a final non-commentary reply proceed to verifier evaluation. Failed, interrupted, mismatched, and malformed terminal events fail the attempt.
-  - **Configuration**: Starts Codex with config overrides `sandbox_mode="danger-full-access"` and `approval_policy="never"` plus matching thread/turn sandbox settings because Cybervisor supplies the outer sandbox/container boundary. Answers app-server approval callbacks so non-interactive runs do not block.
-  - **Permissions**: For `read_only_paths`, Codex uses two layers:
-    1. Optimistic interception via `_server_request_result` — `item/fileChange/requestApproval` for protected paths receives a `deny` response, and `item/permissions/requestApproval` excludes protected patterns from filesystem entries.
-    2. Reliable post-hoc enforcement via `CodexReadOnlySnapshot` — matching working-tree files are snapshotted before the first turn, modified/deleted/created protected files are restored after every turn outcome, and the attempt fails with a read-only-paths error if any protected path changed. `.git` administration directories and `.git` files are excluded because partial Git database restoration is unsafe.
-- **OpenCode**: Uses Strategy B (runtime config only) — no native settings hooks are installed.
+- **Codex**: Uses the official synchronous `openai-codex` SDK and its bundled runtime.
+  - **Communication**: One SDK client and thread are created per stage attempt.
+    Notifications are normalized into canonical events while the SDK's
+    collector returns the authoritative `final_response`. Assistant and
+    reasoning deltas are ignored; completed items become whole `reply:` and
+    `thinking:` blocks.
+  - **Turn Lifecycle**: Blocking verifier decisions continue on the same thread for at most 25 attempted turns. SDK resources close on success and failure.
+  - **Cancellation**: The active turn is interrupted first. If it remains
+    blocked for five seconds, the SDK client transport is closed. Cancellation
+    exits with code `130` and bypasses verifier continuation.
+  - **Configuration**: Threads receive full-access sandboxing, deny-all approval mode, the requested model, current working directory, and autonomous base instructions.
+  - **Permissions**: the shared Git-backed read-only guard is the sole
+    authority for configured path subsets. Matching Git-visible changes fail
+    the attempt and remain in the working tree. Git administration and ignored
+    files are outside its scope.
+- **OpenCode**: Uses process-local runtime configuration only.
   - **Communication**: Communicates over HTTP via `opencode serve` (loopback binding with an allocated port), with a verify-and-continue loop that sends continuation prompts when the verifier blocks. Each stage starts an isolated local `opencode serve` instance, creates a session via `POST /session`, sends the prompt via `POST /session/:id/message`, streams events from `GET /event`, and shuts the server down on completion.
   - **Model Selection**: Reads the user's OpenCode model configuration from global and project config files and injects the effective model via `OPENCODE_CONFIG_CONTENT`, which takes highest precedence in OpenCode's config resolution. Cybervisor `stage_models` overrides take precedence over the user default. Cybervisor does **not** create or modify `opencode.json` in the workspace. After session creation, the adapter verifies the model was applied by inspecting the session response and logs a WARNING if the active model differs.
   - **Permissions**: Generates native OpenCode permission configuration from `disallowed_tools` and `read_only_paths` and injects it via `OPENCODE_CONFIG_CONTENT`. It removes `"ask"` rules so Task subagent child sessions cannot deadlock. Disallowed tools and protected edits are native `deny` rules; unrestricted operations are native `allow` rules.
@@ -140,7 +197,7 @@ Cancellation behavior:
   - **Process Management**: Subprocess crashes during initialization are detected and reported immediately. Dead processes in the continuation loop fail fast instead of sending prompts.
   - **Integrations**: `OPENCODE_ENABLE_EXA=1` is injected to enable Exa search. Disables built-in `bash` and enables the `yieldshell` MCP server; a `yieldshell_active` event is logged to the stage JSONL at session start.
   - **Timeout & Recovery**: Every SSE event (including heartbeats and metadata) resets the idle timeout. If all SSE events stop for the configured window (default 600 seconds, override via `CYBUPERVISOR_OPENCODE_IDLE_TIMEOUT`), the adapter aborts the session and fails the stage attempt with an `idle_timeout_failed` event and a clear duration-bearing error. No recovery prompt is sent and no force-stop loop runs. The pipeline's normal retry-continuation policy decides what happens next. The polling loop also detects a real SSE transport error (`sse_consumer.error`) or a silent consumer EOF within one poll interval; the adapter attempts to reconnect the `/event` stream before failing. Stage logs record `idle_timeout_failed`, `sse_transport_error`, `sse_transport_reconnected`, and `sse_transport_reconnect_failed` entries.
-- **Cursor**: Uses the in-process `cursor-sdk>=1.0.24` adapter with no native settings hooks.
+- **Cursor**: Uses the in-process `cursor-sdk>=1.0.24` adapter.
   - **Process Model**: The SDK `Agent` API is synchronous, so the adapter runs it on a worker thread and exposes a synchronous running handle to the pipeline.
   - **Prerequisites**: The `cursor_sdk` module must be importable. The platform wheel bundles its own bridge launcher under `cursor_sdk/_vendor/bridge/`, so no `cursor-sdk-bridge` binary needs to be on `PATH`.
   - **Authentication**: Reads only `agents.cursor.api_key` from the active Cybervisor config. Ambient environment variables and external login state are not fallback sources.
@@ -148,18 +205,33 @@ Cancellation behavior:
   - **Message Translation**: Handles SDK message attributes defensively, tolerates absent or unfamiliar fields, and converts recognized replies, thinking, tool calls, completion events, session identifiers, and usage data into canonical events. Cursor extracts nested subagent `conversationSteps` from completed task tool results and renders them through the same canonical paths as top-level output.
   - **Tool Mapping**: Preserves Cursor's reported tool name while selecting a canonical formatter for known path, command, search, edit, task, and todo payloads.
   - **Verification**: Evaluates the collected reply after each turn and sends a continuation prompt through the same SDK agent when the verifier blocks completion.
-  - **Permissions**: The SDK exposes no native pre-write control. `read_only_paths` therefore use `ACPReadOnlySnapshot` as snapshot-only post-hoc enforcement; protected changes are restored when possible and fail the attempt.
+  - **Permissions**: The SDK exposes no native pre-write control. `read_only_paths` therefore use the shared Git-backed read-only guard as Git-backed detect-only enforcement; protected changes are left in place for manual or agent correction and fail the attempt.
   - **Cancellation**: Uses cooperative `threading.Event` signaling, invokes SDK cancellation when available, and joins the worker with a bounded watchdog.
-- **Antigravity**: Uses Strategy B (runtime config only) — no native settings hooks are installed.
-  - **Process Model**: The first truly in-process adapter. The `google-antigravity` SDK's async `Agent` runs inside the Cybervisor process via a background thread and event-loop, not as a CLI subprocess.
-  - **Settings**: `settings_path()` returns `None`; no settings-file patching occurs.
-  - **Event Handling**: Creates a custom `AntigravitySDKHandle` that bridges SDK streaming callbacks (text deltas, tool-call events) into `CanonicalLogEvent` objects via a thread-safe queue, then drains the queue in `wait()`. `parse_output_line()` returns `[]` because events flow through the handle directly.
-  - **Model Override**: Passes the model parameter to the SDK config when supported. If the SDK raises `TypeError`, the model is dropped with a warning.
-  - **Permissions**: Enforced via two layers:
-    1. Proactive: `disallowed_tools` and `read_only_paths` are passed as SDK capabilities. If not supported, a warning is logged.
-    2. Post-hoc: `ACPReadOnlySnapshot` detects and restores protected-file modifications, raising `RuntimeError` on violations.
-  - **Authentication**: Uses Google Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS` or `gcloud auth application-default login`).
-  - **Preflight**: Checks SDK importability, platform Agent API availability, runtime readiness, and auth configuration, producing a distinct remediation message for each failure.
+- **Antigravity**: Uses the official `agy` CLI.
+  - **Process Model**: Each attempt launches its own process session in the
+    effective workspace with stdin closed, stdout and stderr separated, and a
+    real PID/process-group ID. The effective workspace is also passed through
+    `--add-dir` so the CLI treats it as the active file-operation root.
+  - **Stream Parsing**: Valid `stream-json` objects remain in the raw stage log.
+    A stateful parser renders recognized replies and tools, de-duplicates
+    response text, and captures the authoritative terminal result. Invalid
+    source lines become escaped diagnostic JSON records.
+  - **Outcome**: Success requires exit code 0 and terminal status `SUCCESS`.
+    The output is the terminal `response`.
+  - **Retry Continuation**: Captured conversation IDs are published through the
+    running handle. Retries use `--conversation`; an explicit unavailable
+    conversation outcome permits one fresh relaunch.
+  - **Permissions**: The CLI receives
+    `--dangerously-skip-permissions`. Cybervisor contracts, verifier decisions,
+    and the shared Git-backed read-only guard remain authoritative.
+  - **Settings**: No code path reads or writes the persistent Antigravity
+    settings file.
+  - **Authentication and Cancellation**: An authentication prompt on stderr
+    terminates the headless process immediately and produces one-time login
+    guidance. Cancellation captures tool descendants before interrupting the
+    CLI, then terminates any descendants that created separate process sessions.
+  - **Preflight**: A cached bounded probe requires `agy` 1.1.8 or newer, with a
+    `--help` capability fallback when the version cannot be parsed.
 
 ## Run-Daemon Coordination
 
@@ -171,16 +243,19 @@ When `cybervisor run` is invoked (both bare-prompt and explicit `run` subcommand
 
 - `.cybervisor/logs/cybervisor.log.jsonl`: Structured run log.
   - **Cleanup**: All contents under `.cybervisor/logs/` are removed and directories recreated before each standalone run, before each daemon task execution, and at daemon startup (after lock acquisition).
-  - **Exceptions**: Non-log state (locks, hooks, backups, contracts, artifacts) is not affected.
+  - **Exceptions**: Non-log state (locks, backups, contracts, artifacts) is not affected.
   - **Errors**: Cleanup failures are logged as warnings and do not abort the run.
 - `.cybervisor/logs/stages/<stage_name>.jsonl`: Captured transcript per stage; created fresh as each stage executes — stale stage JSONL files from previous runs are removed during log cleanup.
 - `.cybervisor/backups/<stage_name>/<timestamp>/`: Versioned backups of stage artifacts after successful completion; each timestamped directory preserves one run's artifacts; never wiped by the artifact reset step.
 - `.cybervisor/contracts/artifacts/*.yaml`: Optional stage-result artifacts for contract-enabled stages.
   - **Cleanup**: Before each stage execution, all top-level files in this directory (except the current stage's own artifact) are removed to avoid confusing agents with stale artifacts.
   - **Exceptions**: Nested subdirectories are preserved.
-- `.cybervisor/hooks/hook-events.jsonl`: Runtime event log.
-  - **Contents**: Records hook decisions, contract validation failures, snapshot-based read-only enforcement events for Cursor and Antigravity, and Codex permission and snapshot enforcement events.
-  - **Cursor Enforcement**: Cursor writes enforcement events when a post-hoc snapshot detects and restores protected changes. It does not write an enforcement-mode marker because no proactive permission mode exists.
+- `.cybervisor/logs/evaluation-events.jsonl`: Post-run evaluation event log.
+  - **Contents**: Records verifier decisions and contract validation failures.
+  - **Cursor Enforcement**: Cursor writes enforcement events when the
+    Git-backed guard detects and reports protected changes without restoration.
+    It does not write an enforcement-mode marker because no proactive subset
+    permission mode exists.
 - generated contract guidance is derived from each stage's `contract.routes` and contract field definitions in `cybervisor.yaml`
 
 ## Client Subcommand Reference (Daemon Mode)

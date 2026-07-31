@@ -10,14 +10,231 @@ title: Pipeline Authoring Guide
 
 These constraints are non-negotiable and will block execution if violated:
 
-1.  **Contract Routing:** Stages with a `contract` MUST define `contract.routes` and MUST NOT define a top-level `next_stage`. All `next_stage` values in routes are validated at config load time — they must reference an existing stage name in the `stages` list. Run `cybervisor validate` to catch invalid references before running the pipeline.
-2.  **Local Contract Validation:** Contract-enabled stages are validated locally from the YAML artifact they produce. A valid artifact with a recognized `Status` completes the stage and drives routing without invoking the verifier LLM. An invalid or missing artifact produces local repair guidance with no verifier HTTP request. This means a contract-only pipeline slice does not require `llm.api_key` in `~/.cybervisor/config.yaml`.
-3.  **Field Integrity:** Every field in an `injections` list MUST be defined in `contract.fields` with at least one realistic `example`. Fields can alternatively be defined using `contract.field_definitions`, which supports both simple string descriptions and richer dict entries with `description` and `example`/`examples` keys.
-4.  **Self-Referencing Routes:** Self-referencing routes (where `next_stage` equals the stage's own `name`) SHOULD use `max_iterations` (with `max_iterations_next_stage`) to prevent unbounded loops.
-5.  **Tracked Documentation:** Any durable usage guidance, workflow explanation, or specification change discovered while authoring a pipeline MUST be copied into tracked documentation under `docs/` and, when relevant, `README.md`. Do not leave that guidance only in ignored directories such as `specs/` or `.cybervisor/artifacts/`.
-6.  **No Route Instructions in `prompt_template`:** For stages with a `contract`, the pipeline runner auto-injects contract guidance after the rendered `prompt_template` content and any injection appendix. This guidance tells the agent exactly what contract artifact to write, which statuses are available, field descriptions, full YAML examples, and routing destinations. `prompt_template` MUST NOT include route instructions (`route 'APPROVED' when...`), emit directives (`emit the required contract artifact for routing`), or judgment-production directives (`produce a final review judgment suitable for autonomous routing`). Behavioral constraints that reference statuses (e.g., "do not use `APPROVED` status if this stage made edits") are allowed — phrase them using "use `<STATUS>` status" rather than "route `<STATUS>`".
-7.  **Contract Artifact Status Key:** Contract artifacts MUST use `Status` (capitalized). Lowercase `status` is rejected with a clear error message. The auto-injected guidance always renders the capitalized form. Use `Status` in your contract artifacts.
-8.  **Recoverable Artifact Errors:** When a contract artifact has unexpected fields, a wrong status, or a missing required field, the pipeline returns a `CORRECTION REQUIRED` message to the agent instead of failing the stage. The correction message includes both the specific repair guidance and the full contract prompt (artifact path, status options, field descriptions, YAML examples, and routing instructions) so the agent can fix the artifact without relying on earlier context. Non-recoverable errors (missing file, invalid YAML) still fail the stage.
+1.  **One Executor:** Each stage is either an agent stage or a command stage.
+    Use `prompt` for agent instructions or `command` for a trusted shell
+    command, never both. `prompt` is the preferred alias for the legacy
+    `prompt_template` spelling. Defining both prompt spellings is also invalid,
+    even if either value is null.
+2.  **Contract Routing:** Stages with a `contract` must define
+    `contract.routes` and must not define a top-level `next_stage`. Every route
+    target must match a configured stage. Run `cybervisor validate` before
+    execution.
+3.  **Local Contract Validation:** Contract-enabled stages are validated
+    locally from their YAML artifact. A valid recognized `Status` drives
+    routing without the verifier LLM. Invalid artifacts produce local repair
+    guidance. A contract-only slice does not require `llm.api_key`.
+4.  **Field Integrity:** Every injected field must be defined in
+    `contract.fields` with a realistic example. `contract.field_definitions`
+    also supports descriptions and one or more examples.
+5.  **Self-Referencing Routes:** A route back to the same stage should use
+    `max_iterations` and `max_iterations_next_stage` to prevent unbounded
+    loops.
+6.  **Tracked Documentation:** Copy durable usage and workflow guidance into
+    tracked files under `docs/` and, when relevant, `README.md`. Do not leave
+    guidance only in ignored directories.
+7.  **No Route Instructions in `prompt`:** Contract guidance is appended
+    automatically after the rendered prompt and injection appendix. Do not
+    author route instructions, artifact emit directives, or judgment
+    directives in `prompt`. Behavioral constraints may refer to a status, such
+    as prohibiting `APPROVED` after the stage edits files.
+8.  **Contract Artifact Status Key:** Contract artifacts must use capitalized
+    `Status`. Lowercase `status` is rejected.
+9.  **Recoverable Artifact Errors:** Unexpected fields, invalid statuses, and
+    missing required fields return `CORRECTION REQUIRED` guidance so the agent
+    can repair the artifact. Missing files and invalid YAML remain
+    non-recoverable.
+10. **Safe Stage Names:** Stage names may contain normal text and spaces, but
+    must not be `.` or `..` and must not contain path separators or control
+    characters. Cybervisor uses stage names in generated artifact and log
+    paths.
+
+## Command stages
+
+Command stages run a non-empty shell string from the workspace root. Pipeline
+configuration is trusted executable input. POSIX shell features such as pipes,
+globs, and `&&` are supported, and normal context placeholders such as
+`{stage_name}` and `{objective}` are rendered before launch.
+
+```yaml
+stages:
+  - name: Test
+    command: uv run pytest | tee test-output.txt
+    max_retries: 2
+    cleanup:
+      - .pytest_cache
+    backup_artifacts:
+      - test-output.txt
+    next_stage: Package
+  - name: Package
+    command: uv build
+```
+
+Literal braces must be doubled. For example, write
+<code v-pre>awk '{{print $1}}'</code> so the shell receives
+`awk '{print $1}'`. Unknown,
+syntactically valid placeholders are checked at runtime because routed context
+can add keys.
+
+| Field | Command-stage rule |
+|---|---|
+| `max_retries` | Allowed; caps total attempts. |
+| `next_stage` | Allowed; list order is the default. Command cycles are invalid. |
+| `cleanup` | Allowed; runs before every launch. |
+| `backup_artifacts` | Allowed; runs after success. |
+| `prompt`, `prompt_template` | Rejected; a stage has one executor. |
+| `contract` | Rejected; exit status is the gate result. |
+| `max_iterations`, `max_iterations_next_stage` | Rejected; commands do not join refinement loops. |
+| `reset_iterations` | Rejected; commands do not manage iteration state. |
+| `keep_artifacts` | Rejected; post-run contract enforcement does not apply. |
+| `read_only_paths` | Rejected; commands may write workspace files. |
+
+Exit zero succeeds. Non-zero exits and start or placeholder-rendering failures
+use the normal retry cap. Combined stdout and stderr are stored without
+rewriting in `.cybervisor/logs/stages/<stage>.jsonl` and mirrored to stderr
+with stage and command attribution. A command-only effective slice needs no
+objective, coding agent, agent executable, or verifier API key.
+
+Command stages cannot participate in routing cycles. Unlike agent stages, they
+cannot declare `max_iterations`, so Cybervisor rejects direct and indirect
+command-stage cycles while loading the pipeline.
+
+## Pipeline lifecycle hooks
+
+Use root-level plural `hooks` for workspace preparation, telemetry, or
+reporting shared by every executable stage:
+
+```yaml
+hooks:
+  before_stage: scripts/lifecycle.sh
+  after_stage: scripts/lifecycle.sh
+stages:
+  - name: Implement
+  - name: Test
+    command: uv run pytest
+```
+
+The plural name is distinct from the singular `verifier` mapping. Lifecycle
+hooks are global; `before_stage` or `after_stage` under an individual stage is
+rejected. Put conditional logic inside the script when only selected stages
+need an action. Each hook value is a literal shell command: Cybervisor does not
+render placeholders or otherwise interpret braces in it.
+
+```mermaid
+flowchart TD
+    R[Render stage input] -->|success| S[Emit stage start]
+    R -->|failure| X[Fail without cleanup or hooks]
+    S --> C[Cleanup once]
+    C --> B[Run literal before_stage command with hook environment]
+    B -->|failure| F[Consume attempt; skip executor and after hook]
+    B --> E[Run agent or command]
+    E --> A[Resolve stage and contract result]
+    A --> H[Run literal after_stage command with hook environment]
+    H --> M[Merge stage and hook results]
+    M -->|success| D[Backup, complete, and route]
+    M -->|failure| F
+```
+
+The commands run from the pipeline workspace on every retry and routed
+revisit. Attempt numbers are one-based within a visit. Iteration numbers are
+one-based across visits, and retries keep the same iteration number.
+
+Both phases define all of these variables:
+
+- `CYBERVISOR_HOOK_PHASE`, `CYBERVISOR_STAGE_NAME`, and
+  `CYBERVISOR_STAGE_EXECUTOR`
+- `CYBERVISOR_STAGE_ATTEMPT`, `CYBERVISOR_STAGE_MAX_RETRIES`,
+  `CYBERVISOR_STAGE_ITERATION`, and `CYBERVISOR_STAGE_MAX_ITERATIONS`
+- `CYBERVISOR_STAGE_SUCCESS`, `CYBERVISOR_STAGE_EXIT_CODE`, and
+  `CYBERVISOR_STAGE_ERROR`
+- `CYBERVISOR_WORKSPACE_ROOT` and `CYBERVISOR_OBJECTIVE`
+- `CYBERVISOR_ROUTED_CONTEXT_JSON`
+
+Before-hook success, exit, and error values are empty. After-hook success is
+`true` or `false`; exit and error are empty when unavailable. The objective is
+the rendered stage prompt or objective text. Routed context is exposed as one
+JSON object whose keys are routed names and whose values are strings. An empty
+routed context is `{}`. The JSON preserves non-ASCII text and key insertion
+order.
+
+Hook variables override inherited values with the same names while every other
+user environment variable remains available. Routed context can contain
+sensitive values, so only use trusted hook commands and scripts.
+
+Braces require no escaping in lifecycle hooks. For example,
+<code v-pre>awk '{print $1}'</code>, JSON literals, `{missing}`, and
+<code v-pre>{{literal}}</code> all reach the shell exactly as configured. This
+differs from a stage `command`, which remains a template and still requires
+doubled literal braces.
+
+### Migrating placeholder-based hooks
+
+This is a breaking change. A legacy command passed rendered values as
+positional arguments:
+
+```yaml
+hooks:
+  before_stage: scripts/lifecycle.sh {stage_name}
+  after_stage: scripts/lifecycle.sh {stage_name} {stage_success}
+```
+
+Replace it with an argument-free command:
+
+```yaml
+hooks:
+  before_stage: scripts/lifecycle.sh
+  after_stage: scripts/lifecycle.sh
+```
+
+Read the metadata in the script:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+stage_name="${CYBERVISOR_STAGE_NAME}"
+stage_success="${CYBERVISOR_STAGE_SUCCESS}"
+
+if [[ "${CYBERVISOR_HOOK_PHASE}" == "before_stage" ]]; then
+  printf 'starting %s\n' "${stage_name}"
+else
+  printf 'finished %s (success=%s)\n' "${stage_name}" "${stage_success}"
+fi
+```
+
+A before-hook failure consumes the ordinary retry budget and skips the stage
+and after hook. An after-hook failure converts stage success to failure. If
+the stage and after hook both fail, the stage error remains primary and the
+hook error is appended. Consequently, an after failure prevents backup,
+completion, context injection, and routing.
+
+Hook output is appended chronologically to the stage log and attributed as
+`hook:before_stage` or `hook:after_stage`. Structured logs use
+`HookRunning`, `HookCompleted`, and `HookFailed`; no hook-specific WebSocket
+events are emitted. Each entry records the literal configured command.
+Interruption uses the normal process-group cancellation path, skips any later
+after hook, and terminates the pipeline.
+
+> Pipeline lifecycle hooks are trusted, unsandboxed shell commands. They
+> inherit the user environment and may run repeatedly. Author idempotent
+> scripts and never interpolate untrusted routed values without appropriate
+> shell handling.
+
+```mermaid
+flowchart LR
+    Render[Render context] --> Cleanup[Clean configured paths]
+    Cleanup --> Shell[Launch shell process group]
+    Shell --> Exit{Exit status}
+    Exit -->|zero| Backup[Backup artifacts]
+    Backup --> Route[Route to next stage]
+    Exit -->|non-zero| Retry{Attempts remain?}
+    Retry -->|yes| Render
+    Retry -->|no| Abort[Abort pipeline]
+    Cancel[SIGINT, SIGTERM, or daemon cancel] --> Shell
+```
+
+> Maintenance note: this guide is approaching the preferred size. Split
+> command and contract authoring into audience-preserving guides in a future
+> documentation-only change.
 
 ## II. Detailed Contract Example: `Review Spec`
 
@@ -28,7 +245,7 @@ stages:
   - name: Review Spec
     max_iterations: 3
     max_iterations_next_stage: Plan
-    prompt_template: |
+    prompt: |
       Review the current specification against:
       {objective}
 
@@ -130,7 +347,8 @@ stages:
 ## IV. Authoring Checklist
 
 - [ ] Every contract stage has `fields` entries for every injected field.
-- [ ] Route instructions, emit directives, and judgment-production directives are not in `prompt_template` (auto-injected by the runner for contract stages).
+- [ ] Route instructions, emit directives, and judgment-production directives
+  are not in `prompt` (auto-injected by the runner for contract stages).
 - [ ] Contract stages do not define a top-level `next_stage`.
 - [ ] Early spec stages stay product-focused ("What/Why"), not technical ("How").
 - [ ] `speckit` non-draft stages explain how to use `.specify/scripts/bash/check-prerequisites.sh`.
@@ -140,7 +358,10 @@ stages:
 ## V. Anti-Patterns
 - **One stage doing everything:** A stage both reviewing and editing the same artifact without the "Self-Refining" pattern.
 - **Generic Injections:** Using `Summary` or `Details` instead of specific fields like `Findings` or `Required Changes`.
-- **Status Drift:** Renaming a route key without updating the `prompt_template` behavioral constraints that reference it. Note: auto-injected guidance eliminates drift for route descriptions and artifact-writing instructions, but any status references in `prompt_template` behavioral constraints (e.g., "do not use `APPROVED` status if...") must still be updated manually.
+- **Status Drift:** Renaming a route key without updating the `prompt`
+  behavioral constraints that reference it. Auto-injected guidance eliminates
+  drift for route descriptions and artifact-writing instructions, but authored
+  status references must still be updated manually.
 - **Over-Injection:** Passing large doc bodies through artifacts in `speckit` repos instead of using script-based discovery.
 - **Unbounded self-refining loops:** A self-referencing stage that loops back to itself without a `max_iterations` cap. While `cybervisor validate` does not enforce iteration caps, unbounded loops risk exhausting retries and budget. Always add `max_iterations` (with `max_iterations_next_stage`) to stages that have self-referencing contract routes.
 
@@ -169,7 +390,13 @@ stage_agents:
   "Review Plan": codex
 ```
 
-**Hook compatibility:** All supported adapters enforce contracts and read-only paths. Claude uses post-hoc filesystem snapshots with no settings-file hooks. OpenCode injects native permission rules via `OPENCODE_CONFIG_CONTENT`. Cursor uses snapshot-only post-hoc enforcement after each SDK turn. Codex uses app-server permission interception and post-hoc filesystem snapshots. Antigravity uses SDK capabilities where supported with post-hoc enforcement as a backstop. Per-stage agent overrides work with any supported adapter without requiring settings-file hooks.
+**Adapter compatibility:** All supported adapters enforce contracts and
+read-only paths. Claude uses Git-backed change detection without changing
+settings.
+OpenCode injects native permission rules through `OPENCODE_CONFIG_CONTENT`.
+Cursor, Codex, and Antigravity use Git-backed detect-only enforcement.
+Antigravity also applies a process-local autonomous permission override to
+`agy`; it does not edit persistent settings.
 
 ### `backup_artifacts` {#backup_artifacts}
 
@@ -180,12 +407,17 @@ stage_agents:
 **Behavior:**
 - A stage with `backup_artifacts: []` or without the field performs no backup.
 - Backup is best-effort — missing source files are skipped with a warning log; the stage continues.
-- Relative paths are resolved against the task's working directory at backup time.
+- Paths must be relative children of the task workspace and must not contain
+  `..`. Sources or backup destinations that resolve outside the workspace
+  through symbolic links are skipped.
+- Relative paths are resolved against the task workspace at backup time.
 - Each successful stage completion creates a new timestamped backup directory (format: `YYYY-MM-DDTHH-MM-SS`, UTC). Previous backups are preserved — no overwrite.
 - `.cybervisor/backups/` is never wiped by the pipeline's artifact reset. `.cybervisor/artifacts/` cleanup is skipped when files are present, preserving pre-written or seeded artifacts across pipeline restarts.
-- Backup occurs only after successful stage completion (passed hook + valid artifact). Failures and retries do not trigger a backup.
+- Backup occurs only after successful stage completion (approved evaluation
+  and valid artifact). Failures and retries do not trigger a backup.
 
-**Daemon-mode behavior:** Backup uses the daemon's working directory, not the client's. Use absolute paths or paths anchored at the repo root to ensure correct resolution.
+**Daemon-mode behavior:** Backup paths resolve against the submitting task's
+workspace, independently of the daemon process working directory.
 
 **Usage note:** Declare `backup_artifacts` on stages that produce canonical delivery artifacts (e.g., specs, plans) that subsequent stages may overwrite. Backing up before the next stage runs preserves the output for review.
 
@@ -202,17 +434,20 @@ stages:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `keep_artifacts` | `list[str]` | No | List of file paths the stage must not delete. The hook checks existence of each path on every invocation. If any are missing, the stage is blocked with a remediation message instructing the agent to recreate them. |
+| `keep_artifacts` | `list[str]` | No | List of file paths the stage must not delete. Post-run evaluation checks each path. Missing paths block completion with remediation guidance. |
 
 **Behavior:**
 - `keep_artifacts: []` (empty list) is identical to omitting the field — a no-op check.
 - `keep_artifacts: null` in YAML is coerced to `[]` during config parsing (not an error).
 - Duplicate entries (exact string match, case-sensitive) are deduplicated during parsing; order of remaining entries is preserved.
 - Each entry must be a non-empty string. Non-list values or non-string entries raise a config error.
-- Paths may be relative or absolute. Relative paths are resolved against `Path.cwd()` at hook check time. In daemon mode, use absolute paths or repo-root-anchored paths to avoid false blocks from working-directory divergence.
+- Paths must be relative children of the task workspace and must not contain
+  `..`. They resolve against that workspace in both standalone and daemon
+  mode. A symbolic link that resolves outside the workspace does not satisfy
+  the preservation check.
 - The check uses `Path.exists()` only — it does not validate content. Declaring a directory passes as long as the directory entry exists.
 
-**Block message format:** When artifacts are missing, the hook returns:
+**Block message format:** When artifacts are missing, evaluation returns:
 ```json
 {
   "decision": "block",
@@ -220,7 +455,9 @@ stages:
 }
 ```
 
-**Usage note:** Declare `keep_artifacts` on any stage that downstream stages depend on. For example, stages that consume `.cybervisor/artifacts/spec.md`, `.cybervisor/artifacts/plan.md`, or `.cybervisor/artifacts/tasks.md` should declare them so the hook blocks if the agent accidentally deletes them.
+**Usage note:** Declare `keep_artifacts` on any stage that downstream stages
+depend on. If an agent accidentally deletes one, post-run evaluation blocks
+completion and asks it to recreate the file.
 
 **Example:**
 ```yaml
@@ -243,9 +480,8 @@ stages:
           injections: [Findings]
 ```
 
-**Daemon-mode behavior:** In daemon mode, `hook_config.json` is shared across stage invocations. If a stage crashes before teardown, the previous stage's `keep_artifacts` list remains in the config. The hook tolerates stale lists as a no-op if the declared files happen to be absent for an unrelated reason.
-
-**Failure-before-teardown isolation:** The hook runtime resets `keep_artifacts: []` at the **start** of every stage activation (before writing the new stage's list). This ensures that even if a stage crashes mid-execution, the next stage's activation overwrites the stale list, preventing cross-stage leakage.
+**Daemon-mode behavior:** Each attempt receives its own immutable evaluation
+context, so `keep_artifacts` cannot leak between stages or tasks.
 
 ### `cleanup` {#cleanup}
 
@@ -258,13 +494,18 @@ stages:
 **Behavior:**
 - `cleanup: []` (empty list) or absent means no cleanup for that stage.
 - `cleanup: null` in YAML is coerced to `[]` during config parsing.
-- Paths must be relative to the workspace root. Absolute paths and paths that escape the workspace root via `..` are rejected at config validation time.
+- Paths must be relative to the workspace root.
+  - Absolute paths are rejected.
+  - Paths that escape the workspace root via `..` are rejected.
+  - `.` and equivalent paths that target the workspace root are rejected.
 - If a declared path is a directory, all contents (files, symlinks, and subdirectories) are removed recursively, preserving only the directory itself. If a declared path is a regular file or symlink, it is removed directly.
-- Cleanup runs before the stage's agent subprocess starts, after contract artifact cleanup but before the hook runtime config is written for the new stage. The ordering is: contract artifact cleanup → stage cleanup → hook config setup → agent start.
-- If a path does not exist, it is skipped with a debug log (no error). If deletion of an existing file fails (e.g., permission denied), a warning is logged and cleanup continues — the pipeline does not crash.
+- Cleanup runs once after stage-input rendering and stage start, before the
+  lifecycle before hook or stage executor.
+- If a path does not exist, it is skipped with a debug log. If deletion of an
+  existing file fails, the attempt fails, both lifecycle hooks and the
+  executor are skipped, and the normal retry policy applies.
 **Validation warnings:**
 - Config validation emits a warning when `.cybervisor/contracts/` (or any subpath) appears in `cleanup`, since that directory is managed by the existing contract artifact cleanup mechanism.
-- Config validation emits a warning when `.cybervisor/hooks/` (or any subpath) appears in `cleanup`, since deleting the hook runtime config would break hook execution.
 
 **Example:**
 ```yaml
@@ -334,7 +575,11 @@ stages:
 
 **Behavior:**
 - `reset_iterations` lets a pipeline author clear the iteration history of downstream review stages when a broader delivery stage succeeds. This is useful in review loops where one stage validates the overall delivery and then sends work back through narrower review stages that would otherwise retain stale visit counts from prior cycles.
-- Reset occurs only on the successful-completion path — after hook/artifact validation passes and route resolution succeeds. Reset does not run on stage failure, retry, hook block, missing/invalid contract route, interrupted execution, or `max_iterations` forced routing.
+- Reset occurs only on the successful-completion path — after lifecycle
+  after-stage execution and artifact validation pass and route resolution
+  succeeds. Reset does not run on stage failure, retry, evaluation block,
+  missing/invalid contract route, interrupted execution, or `max_iterations`
+  forced routing.
 - The declaring stage's own `iteration_counts` entry is not reset by this field. A stage cannot include its own name in `reset_iterations` (self-reset is invalid because success already clears that stage's retry count).
 - Resetting a target stage's visit counter does not change that stage's failure retry counter (`max_retries`); only `iteration_counts` for the named stages are set to `0`.
 - Each entry must reference an existing configured stage name (case-sensitive). Unknown targets and self-targets are rejected at config validation time.
@@ -391,7 +636,7 @@ flowchart LR
 - `Completed Tasks` is reserved contract evidence. It is never routed or injected into a downstream prompt.
 - Missing, malformed, or incomplete `Completed Tasks` lists produce recoverable errors with actionable guidance naming only the missing items.
 - Required-task validation applies to every status and coexists with route injections.
-- The hook and pipeline post-stage validation enforce identical rules.
+- Shared evaluation and final pipeline validation enforce identical rules.
 - Contracts without `required_tasks` retain their current artifact shape and behavior.
 
 **Guidance rendering:** When `required_tasks` is configured, the auto-injected contract guidance includes `Completed Tasks` in every status example and adds instructions warning the agent to list an item only after doing the work.
@@ -428,7 +673,8 @@ Completed Tasks:
   - Pass ruff check
 ```
 
-**Repair guidance for incomplete list:** If the agent lists only `Write unit tests`, the hook returns a block with:
+**Repair guidance for incomplete list:** If the agent lists only
+`Write unit tests`, evaluation returns a block with:
 > The 'Completed Tasks' field is missing the following configured task(s): Pass mypy --strict, Pass ruff check. Continue the required work before listing them.
 
 ### Per-Stage Model Override (`stage_models`) {#stage_models}
@@ -465,31 +711,38 @@ stage_models:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `read_only_paths` | `list[str]` | No | Per-stage list of glob patterns for files that write-tool calls must not modify during that stage. Claude uses post-hoc filesystem snapshots; OpenCode generates native permission deny rules in `OPENCODE_CONFIG_CONTENT`; Cursor uses snapshot-only post-hoc enforcement after each SDK turn; Codex restores protected changes after each turn and fails the attempt; Antigravity uses SDK capabilities where supported with post-hoc enforcement as a backstop. The pipeline also tells the agent about protected paths in the stage prompt. When empty or absent, no adapter read-only enforcement is active and no read-only section is appended to the prompt. |
+| `read_only_paths` | `list[str]` | No | Per-stage list of glob patterns that agent stages must not modify. Claude, Cursor, Codex, and Antigravity use Git-backed detect-only enforcement; OpenCode generates native permission deny rules in `OPENCODE_CONFIG_CONTENT`. The pipeline also tells the agent about protected paths in the stage prompt. When empty or absent, no adapter read-only enforcement is active. |
 
 **Behavior:**
 - `read_only_paths: []` (empty list) or absent — no write protection for that stage, and no read-only section is appended to the prompt. Adapter-level read-only enforcement is skipped.
 - `read_only_paths` is a per-stage field. Stages that need write protection (e.g., design or review stages) specify their own patterns; implementation stages typically omit it to allow full write access.
-- Codex post-hoc snapshots protect matching working-tree files but exclude `.git` administration directories and `.git` files. A broad pattern such as `service/**` therefore protects files under the service working tree without attempting to restore `service/.git/FETCH_HEAD`, refs, indexes, objects, or locks. Use an outer read-only mount or disposable checkout when Git administration state must also be immutable.
+- Git-backed detection protects matching Git-visible working-tree files but excludes Git administration and ignored paths. A broad pattern such as `service/**` therefore protects visible files under the service working tree without inspecting `.git/FETCH_HEAD`, refs, indexes, objects, or locks. Use a read-only mount or disposable checkout when those paths must be immutable.
 - Patterns are resolved relative to the workspace root and matched using path-segment glob semantics. `*` matches within one path segment, while `**` matches zero or more path segments. For example, `src/*.py` matches `src/foo.py`, `src/**/*.py` also matches `src/sub/bar.py`, and `src/**` matches everything under `src/`.
 - Each entry must be a non-empty, relative path string. Absolute paths and paths containing `..` are rejected at config validation time.
-- Each adapter enforces read-only protection through its own mechanism (post-hoc filesystem snapshots, native permission deny rules, or app-server interception — see the field description table above). Enforcement details are adapter-specific and not a shared hook layer.
-- The `Stop` / `AfterAgent` verifier hook continues to work independently and is not affected by `read_only_paths`.
+- Each adapter enforces read-only protection through its own mechanism
+  (Git-backed change detection or native permission deny rules).
+- Post-run verifier evaluation is independent of `read_only_paths`.
 - If a `read_only_paths` pattern matches a `keep_artifacts` entry for the same stage, a warning is emitted at config validation time.
 
-**Prompt injection:** When a stage has non-empty `read_only_paths`, the pipeline runner appends a read-only-paths section to the assembled stage prompt. This section lists each protected pattern and instructs the agent not to modify files matching those paths. The section is inserted after the injection appendix (if any) and before contract guidance, following the established append-only pattern. This provides defense-in-depth: the agent receives upfront guidance about protected paths, reducing wasted tool-call budget on blocked or restored writes, while runtime enforcement continues to enforce the constraint.
+**Prompt injection:** When a stage has non-empty `read_only_paths`, the pipeline runner appends a read-only-paths section to the assembled stage prompt. This section lists each protected pattern and instructs the agent not to modify files matching those paths. The section is inserted after the injection appendix (if any) and before contract guidance, following the established append-only pattern. This provides defense-in-depth: the agent receives upfront guidance about protected paths, reducing wasted tool-call budget on blocked or detected writes, while runtime enforcement continues to enforce the constraint.
 
-**Event logging:** Read-only enforcement events are recorded in `.cybervisor/hooks/hook-events.jsonl`. Claude and Cursor log `enforcement` events when a post-hoc snapshot detects and restores a protected-file modification. Cursor does not emit an enforcement-mode marker because it has no proactive permission mode. Codex logs denied file-change approvals and snapshot enforcement events. Check this file when debugging unexpected blocks or allowed writes.
+**Event logging:** Post-run verifier and contract events are recorded in
+`.cybervisor/logs/evaluation-events.jsonl`. Adapter stage logs contain
+read-only enforcement failures.
 
 **Example:**
 ```yaml
 stages:
   - name: Spec
-    prompt_template: "Generate a specification for: {objective}"
+    prompt: "Generate a specification for: {objective}"
     read_only_paths:
       - "src/**"
       - "pyproject.toml"
       - "tests/**"
 ```
 
-Runtime lifecycle details such as hook installation, settings restoration, logs, signals, and single-instance enforcement are documented in [Runtime and Daemon — Developer Reference](/runtime-internals.html), not in this authoring guide, because they are built-in runtime mechanics rather than `cybervisor.yaml` authoring concerns.
+Runtime lifecycle details such as post-run evaluation, logs, signals, and
+single-instance enforcement are documented in
+[Runtime and Daemon — Developer Reference](/runtime-internals.html), not in this
+authoring guide, because they are built-in runtime mechanics rather than
+`cybervisor.yaml` authoring concerns.

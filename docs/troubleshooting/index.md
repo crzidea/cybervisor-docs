@@ -29,4 +29,6 @@ If you are encountering issues specific to a coding-agent tool or SDK, refer to 
 - **[Cursor Agent Guide](/agents/cursor.html)**
 - **[OpenCode Agent Guide](/agents/opencode.html)**
 - **[Antigravity Agent Guide](/agents/antigravity.html)**
+  Missing or old `agy`, interactive login, headless status failures, retry
+  continuation, and cancellation.
 - **[Codex Agent Guide](/agents/codex.html)**

@@ -38,13 +38,14 @@ For the repository layout and package structure, see [Development](/development.
 | [Runtime and Daemon — User Guide](/runtime-user.html) | Daemon commands, client interaction, live stderr output, skill disable/restore, signals |
 | [Updating](/updating.html) | Install, upgrade, and migration workflows |
 | [Shell Completions](/completions.html) | Bash tab completion setup and comparison |
+| [Local Usage Metrics](/usage-metrics.html) | Private task history, filters, grouping, and token coverage |
 | [Troubleshooting](/troubleshooting/index.html) | Common issues and resolutions |
 | [Testing and Sandbox](/testing.html) | Sandbox usage, mock adapter, simple demo scripts |
 | [Claude Code Agent Guide](/agents/claude.html) | Claude Code adapter SDK configuration, autonomous operation, and permission enforcement |
 | [Cursor Agent Guide](/agents/cursor.html) | Cursor adapter configuration, SDK integration, and auth |
 | [OpenCode Agent Guide](/agents/opencode.html) | OpenCode adapter serve mode, configuration injection, and timeouts |
-| [Antigravity Agent Guide](/agents/antigravity.html) | Antigravity SDK in-process execution, auth prerequisites, and setup |
-| [Codex Agent Guide](/agents/codex.html) | Codex adapter app-server configuration, callbacks, and sandbox overrides |
+| [Antigravity Agent Guide](/agents/antigravity.html) | Official `agy` CLI setup, authentication, permissions, and troubleshooting |
+| [Codex Agent Guide](/agents/codex.html) | Official SDK runtime, autonomous continuation, and Git-backed enforcement |
 
 ## Developer Guides
 

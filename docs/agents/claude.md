@@ -23,16 +23,21 @@ The Claude Code adapter enables `cybervisor` to use Claude as a pipeline agent v
 - Claude stages request adaptive thinking with summarized display by default so supported models can emit SDK-provided thinking summaries. Visible assistant text still renders as `reply:` events; only true thinking blocks render as `thinking:`.
 - Inside the Cybervisor container, Claude runs as root with `IS_SANDBOX=1` declared in the image, which permits `bypassPermissions`. Host installations do not set this variable — Claude may refuse autonomous permissions when run as host root without the sandbox declaration.
 
-### Hooks and Settings Patching
-Unlike older versions of Cybervisor, the Claude adapter **does not** patch `.claude/settings.json` or install Claude Code hooks:
+### Settings and evaluation
+
+The Claude adapter does not patch `.claude/settings.json` or install Claude
+Code callbacks:
 - Contract enforcement and verifier decisions remain Cybervisor-owned after the agent exits.
-- Read-only path enforcement uses post-hoc filesystem snapshots (`ACPReadOnlySnapshot`) that detect and restore protected-file modifications after each stage.
-- No Claude Code `PreToolUse`, `Stop`, or other hooks are installed.
+- Read-only path enforcement uses the shared Git-backed guard to detect protected Git-visible changes without restoring them.
+- Reply and contract evaluation runs directly in Cybervisor after the SDK exits.
 
 ### Permission Enforcement
 - **Disallowed Tools:** Tools that could block automation (e.g., `AskUserQuestion`, `EnterPlanMode`) are denied through SDK `disallowed_tools` options.
-- **Read-Only Paths:** Protected file writes are detected and reverted after each stage via filesystem snapshots. The stage fails if a protected path was modified.
-- **Logging:** Permission and enforcement events are logged to `.cybervisor/hooks/hook-events.jsonl`.
+- **Read-Only Paths:** Protected file writes are detected and reported without
+  restoring them. The stage captures one Git-backed status baseline before its
+  attempts begin, then fails if a protected path changes during any attempt.
+- **Logging:** Evaluation events are logged to
+  `.cybervisor/logs/evaluation-events.jsonl`.
 
 ---
 
@@ -42,7 +47,7 @@ Unlike older versions of Cybervisor, the Claude adapter **does not** patch `.cla
 Cybervisor does not duplicate Claude Code's authentication resolution during preflight. Set credentials in the normal Claude Code locations, then rerun the stage. Supported locations include shell environment variables, `env` entries in Claude settings files, and existing `claude login` credentials.
 
 ### Stage fails with read-only path violation
-If a stage modifies a file matching its `read_only_paths` configuration, the modification is reverted and the stage fails. Adjust the stage's `read_only_paths` or prompt to avoid writing to protected paths.
+If a stage modifies a file matching its `read_only_paths` configuration, the protected modification remains in place and the stage fails. Adjust the stage's `read_only_paths` or prompt to avoid writing to protected paths.
 
 ---
 

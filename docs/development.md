@@ -32,7 +32,8 @@ For a fast smoke test that exercises the full pipeline through `Verify` using a 
 ./scripts/e2e-verify-smoke.sh --agent claude   # use Claude Code adapter instead of mock
 ```
 
-Both modes route all LLM calls (hook verifier and stage-agent) through the bundled mock API server, so no real API keys are needed.
+Both modes route all LLM calls (post-run verifier and stage agent) through the
+bundled mock API server, so no real API keys are needed.
 
 Release helper:
 
@@ -81,19 +82,17 @@ src/cybervisor/        Core CLI package (split into focused subpackages)
   client/              Daemon WebSocket client (commands, connection, rendering, streaming)
   pipeline/            Pipeline execution (runner, _execution, _continuation, _session_metadata, _cleanup, _interrupt, _routing, artifacts, contract)
   server/              Daemon WebSocket server (daemon, _daemon_config, handlers, _task_exec, tasks, _cleanup, _path)
-  core_hooks/          Hook runtime (runner, tool_use, _http, contracts, streaming, verifier, common)
+  evaluation/          Context-driven contracts, verifier client, decisions, events, and reply evaluation
   adapters/            Agent adapter registry and tool-specific adapters (claude, codex, opencode, cursor, antigravity, mock)
-    codex/             Codex adapter (adapter, app_server, _app_helpers)
+    codex/             Codex SDK adapter (adapter, _handle, _sdk_wrapper, _app_helpers)
     claude/            Claude adapter (adapter, _handle, _sdk_wrapper, stream)
     opencode/          OpenCode adapter (adapter, serve_transport, serve_client, stream)
     cursor/            Cursor adapter (adapter, _handle, _sdk_wrapper, stream, tool_mapping)
-    antigravity/       Antigravity adapter (adapter, _handle, _sdk_wrapper)
+    antigravity/       agy command, preflight, NDJSON parser, and process handle
     mock/              Mock adapter (adapter)
   config/              Configuration package (_types, _parsing, _stage_parsing; re-exports through __init__)
   cli.py, client.py,   Thin backward-compatible re-exports
   pipeline.py, server.py
-  hooks.py             Hook installer and runtime config
-  agent_hook.py        Packaged cybervisor-agent-hook entry point
   preflight.py         Dependency pre-check
   signals.py           Signal handler
   logging.py           Structured logging
@@ -102,12 +101,12 @@ src/cybervisor/        Core CLI package (split into focused subpackages)
   global_config.py     ~/.cybervisor/config.yaml loader
   skills.py            Project-local skill disable/restore
   upgrade.py           Background version-check
-assets/hooks/          Hook prompt assets and fixtures
+assets/verifier/       Stage-completion verifier prompt assets
 scripts/               Demo and utility scripts
 tests/                 Unit and integration coverage
 .specify/              Constitution and repo-specific scripts
 AGENTS.md              Symlink to constitution
 GEMINI.md              Symlink to AGENTS.md
 CLAUDE.md              Symlink to AGENTS.md
-.cybervisor/           Runtime state (instance.lock, daemon.lock, hooks/, logs/)
+.cybervisor/           Runtime state (instance.lock, daemon.lock, logs/, contracts/, artifacts/)
 ```

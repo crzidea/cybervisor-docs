@@ -143,10 +143,18 @@ The `claude` agent uses the `claude-agent-sdk` Python SDK and runs in-process (n
 
 ### The `antigravity` Agent
 
-The `antigravity` agent uses the `google-antigravity` Python SDK and runs in-process (no CLI binary needed). The SDK is included as a standard Cybervisor dependency — no separate install is required. Before running a pipeline, authenticate by setting `GOOGLE_APPLICATION_CREDENTIALS` or running `gcloud auth application-default login`. Model overrides for specific stages can be set via top-level `stage_models` in `~/.cybervisor/config.yaml`. See [Configuration Reference — Antigravity Notes](configuration.md#antigravity-notes) for full setup details.
+The `antigravity` agent requires the official `agy` CLI version 1.1.8 or
+newer. Install it on macOS or Linux, then launch it once to sign in:
 
-> [!WARNING]
-> **Google AI Pro Subscription Limitation:** At this time, the `antigravity` SDK cannot be authenticated using a Google AI Pro / Google One AI Premium subscription (consumer accounts). You must use standard Google Cloud Application Default Credentials (ADC) or a Service Account key file. Additionally, the Antigravity CLI (`agy`) is not supported by Cybervisor because it does not offer ACP (Agent Connection Protocol), hook integration, or JSONL log parsing.
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+agy
+```
+
+Cybervisor uses the CLI's headless `stream-json` mode and the user's normal
+Antigravity login. Model overrides from top-level `stage_models` are passed
+verbatim. See the [Antigravity Agent Guide](/agents/antigravity.html) for
+permission ownership, timeout configuration, cancellation, and troubleshooting.
 
 ### The `opencode` Agent
 

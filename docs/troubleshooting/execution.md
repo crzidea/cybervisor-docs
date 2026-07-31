@@ -38,14 +38,24 @@ If the daemon is running, also check:
 cybervisor status
 ```
 
+### Legacy hook files remain in the workspace
+
+Current Cybervisor runs do not create `.cybervisor/hooks/`,
+`.cybervisor/hook-events.sock`, `hook_config.json`, or settings snapshots. An
+older run may have left these files behind. Confirm that no older Cybervisor
+process is using them, then remove the stale files manually. The current
+evaluation log is `.cybervisor/logs/evaluation-events.jsonl`.
+
 ---
 
 ## Agent and Adapter Execution
 
 ### Agent exits immediately with no output
 
-- Confirm subprocess agents are installed with `codex --version` or `opencode --version`.
-- Claude, Cursor, and Antigravity use in-process Python SDKs bundled with Cybervisor. Cursor reads its API key only from `agents.cursor.api_key` in the active config. Run `cybervisor doctor` to verify the selected adapter and its authentication.
+- Confirm OpenCode is installed with `opencode --version`; for Codex, verify `python -c "import openai_codex"`.
+- Claude and Cursor use bundled Python SDKs. Antigravity requires `agy` 1.1.8
+  or newer on `PATH` and a completed interactive login. Run
+  `cybervisor doctor` to verify the selected adapter.
 - Check preflight output at the top of the run for missing prerequisites.
 - For agent-specific prerequisites, auth, or session timeouts, see the [Supported Agents Reference](../troubleshooting/index.md#agent-specific-guides-and-troubleshooting).
 
@@ -54,8 +64,11 @@ Live stderr builds `tool call:` lines from each agent's structured events.
 - A label-only line is normal when the event has no arguments. 
 - For protocol-based agents, summaries appear only when the tool payload includes usable argument fields.
 - For serve-based agents like OpenCode, summaries appear from SSE event payloads. (OpenCode deduplicates bare tool-call start events and suppresses lifecycle/metadata events from stderr, though they still appear in the JSONL stage log).
-- For Antigravity, summaries appear from SDK streaming callbacks.
-- If summaries disappeared or look wrong after upgrading the agent CLI or SDK, compare the live line with the corresponding `tool_call` entry in `.cybervisor/logs/stages/`. Cursor and Antigravity record SDK events; OpenCode records HTTP/SSE events. Maintainers extending support for new payload shapes should update that agent adapter's translation or tool-mapping layer, not shared stream rendering — see [Adding a Coding-Agent Adapter](/contributing/adding-an-adapter.html).
+- For Antigravity, summaries come from recognized `stream-json` step updates.
+- If summaries disappeared after upgrading an agent, compare the live line with
+  the raw entry in `.cybervisor/logs/stages/`. Antigravity records CLI NDJSON;
+  OpenCode records HTTP/SSE events. Maintainers should update the owning
+  translation layer, not shared rendering.
 
 ---
 
@@ -67,21 +80,28 @@ If the agent reports "Path X is protected by the pipeline (read_only_paths)", th
 
 - Check your stage's `read_only_paths` patterns — they use path-segment glob matching resolved relative to the workspace root. `*` matches within one path segment, and `**` matches zero or more path segments. For example, `src/**` matches all files under `src/`, and `**/*.py` matches Python files at any depth.
 - If the block is unexpected, verify the pattern isn't too broad. For example, `**/*.py` blocks all Python files project-wide. Use a narrower pattern such as `src/**/*.py` when only one tree should be protected.
-- Bash commands that write to protected paths (`>`, `>>`, `sed -i`, `tee`) are detected and restored by post-hoc snapshot enforcement or blocked by native adapter permission rules. Restructure the command to avoid writing to protected paths.
+- Bash commands that write to protected paths (`>`, `>>`, `sed -i`, `tee`) are detected and reported without restoration by the Git-backed guard, or blocked by native adapter permission rules. Restructure the command to avoid writing to protected paths.
 
 ### `read_only_paths` is not blocking writes
 
 - Confirm `read_only_paths` is set on the relevant stage in `cybervisor.yaml` (it is a per-stage field, not a top-level field or a `~/.cybervisor/config.yaml` field).
 - Empty or absent `read_only_paths` for a stage means no write protection is installed for that stage. Adapter-level read-only enforcement is only active when the list is non-empty.
-- The `Stop` / `AfterAgent` verifier hook is independent of `read_only_paths` and does not gate tool calls.
+- Post-run verifier evaluation is independent of `read_only_paths` and does
+  not gate tool calls.
 - **Enforcement scope:** 
-  - Claude uses post-hoc filesystem snapshots that detect and restore protected-file modifications after each stage — the stage fails if a protected path was modified.
-  - Cursor uses snapshot-only post-hoc enforcement after each SDK turn. A protected file can be changed briefly before restoration, so use a read-only mount when pre-write prevention is required.
+  - Claude uses Git-backed change detection that reports protected Git-visible changes without restoring them; the stage fails if a protected path was modified.
+  - Cursor uses Git-backed detect-only enforcement after each SDK turn. A protected file can be changed briefly before detection, so use a read-only mount when pre-write prevention is required.
   - OpenCode generates native permission deny rules in `OPENCODE_CONFIG_CONTENT`.
-  - Codex app-server enforces it after each turn by restoring protected filesystem changes and failing the attempt.
-  - Antigravity uses SDK capabilities where supported and post-hoc snapshots.
+  - Codex SDK stages detect protected Git-visible changes after each turn,
+    leave them in place, and fail the attempt.
+  - Antigravity uses Git-backed change detection after its unrestricted,
+    process-local CLI permission override.
   - External processes or direct filesystem writes outside the agent session are not blocked.
-- Check `.cybervisor/hooks/hook-events.jsonl` for snapshot enforcement events. Cursor has no proactive enforcement mode.
+- Git-ignored files are intentionally outside the non-OpenCode guard. If a
+  warning names an ignored or uncovered pattern, protect a Git-visible prefix
+  or use a filesystem-level read-only boundary.
+- Check `.cybervisor/logs/evaluation-events.jsonl` for post-run evaluation
+  events. Cursor has no proactive enforcement mode.
 
 ---
 
@@ -91,8 +111,9 @@ If the agent reports "Path X is protected by the pipeline (read_only_paths)", th
 
 This warning means the pipeline tried to continue a prior agent session on retry but could not, so it fell back to a fresh session. Common reasons:
 
-- **`adapter_does_not_support_continuation`** — The adapter for this stage does not have a native session-resume mechanism. All adapters other than OpenCode currently fall back to fresh retries. This is expected and does not indicate a problem.
+- **`adapter_does_not_support_continuation`** — The adapter for this stage does not have a native session-resume mechanism. All adapters other than OpenCode and Antigravity currently fall back to fresh retries. This is expected and does not indicate a problem.
 - **`no_prior_session_id`** — The previous attempt did not capture a session ID (e.g., the adapter crashed before the session was established). The retry starts a new session instead.
+- **`conversation_unavailable`** — Antigravity requested an explicit continuation but the CLI reported the prior conversation was unavailable. Cybervisor retries once with a fresh conversation.
 - **`serve_process_exited_with_code_<n>`** — OpenCode-specific. The prior `opencode serve` subprocess is no longer running. The exit code is appended to the reason.
 - **`serve_health_check_failed`** — OpenCode-specific. The serve process is alive but the `/global/health` endpoint did not respond. Cybervisor starts a new serve instance and session.
 
@@ -100,7 +121,7 @@ In all cases, the retry still proceeds normally — the stage gets a fresh agent
 
 ### Retry appears to restart from the beginning
 
-If the adapter does not support retry continuation (adapters other than OpenCode), each retry starts a new agent session with the original prompt. To reduce duplicated work on retry, consider reducing `max_retries` or restructuring the stage into smaller units.
+If the adapter does not support retry continuation (adapters other than OpenCode and Antigravity), each retry starts a new agent session with the original prompt. To reduce duplicated work on retry, consider reducing `max_retries` or restructuring the stage into smaller units.
 
 ---
 
@@ -141,7 +162,7 @@ This error message appears when the idle timeout triggers. The adapter aborts th
 
 ### "Last session available but adapter does not support continuation"
 
-This message means cybervisor found a persisted session id from the previous run but the current adapter cannot resume sessions. The stage starts as a fresh attempt. The full log line is `[<stage>] Last session available but adapter '<name>' does not support continuation; starting fresh`. This is expected for adapters other than OpenCode.
+This message means cybervisor found a persisted session id from the previous run but the current adapter cannot resume sessions. The stage starts as a fresh attempt. The full log line is `[<stage>] Last session available but adapter '<name>' does not support continuation; starting fresh`. This is expected for adapters other than OpenCode and Antigravity.
 
 ### "Last session not reusable" in logs
 
@@ -198,13 +219,13 @@ The `prompt_template` for a stage references a placeholder like `{key}` that is 
 
 The error message lists both the missing keys and the available keys. Fix the `prompt_template` in `cybervisor.yaml` to use only available context keys.
 
-### Hook verifier returns `block` on every invocation
+### Verifier returns `block` after every run
 
-The verifier LLM is rejecting the hook decisions. Common causes:
+The verifier LLM is rejecting stage completion. Common causes:
 
 - The verifier model is too restrictive. Try a different model in `~/.cybervisor/config.yaml`.
 - The stage contract artifact is malformed. Inspect the artifact under `.cybervisor/contracts/artifacts/` and compare it to the expected schema. Contract-enabled stages validate locally — every `block` from a contract stage is a local decision, not a verifier response.
-- The hook verifier endpoint is unreachable. Check `cybervisor doctor`.
+- The verifier endpoint is unreachable. Check `cybervisor doctor`.
 - `llm.api_key` is missing or empty. This key is required only for non-contract stages that need model-assisted stop verification. Contract-only stage slices can run without it.
 
 For testing with deterministic approvals, use the mock LLM API:

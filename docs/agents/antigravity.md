@@ -4,68 +4,115 @@ title: Antigravity Agent Guide
 
 # Antigravity Agent Guide
 
-> **Audience: Users** — Operators configuring or troubleshooting the Antigravity agent adapter.
+> **Audience: Users** — Operators configuring or troubleshooting the
+> Antigravity agent adapter.
 
-The Antigravity adapter is the first truly in-process adapter in Cybervisor. The `google-antigravity` SDK's async `Agent` runs directly inside the Cybervisor process via a background event loop instead of spawning a CLI subprocess or executing ACP JSON-RPC.
+Cybervisor runs the official Antigravity CLI in headless mode. It requires
+`agy` version 1.1.8 or newer with `stream-json` output.
 
----
+## Install and authenticate
 
-## Configuration and Setup
+On macOS or Linux:
 
-### Prerequisites
-- The `google-antigravity` SDK is a standard dependency of Cybervisor. No separate installation is needed.
-- If the SDK is missing or not importable, reinstall Cybervisor:
-  ```bash
-  uv sync
-  # or
-  pip install --force-reinstall .
-  ```
-- The Antigravity CLI (`agy` / `antigravity-cli`) is **not** required and cannot be used with Cybervisor, as it lacks support for the Agent Connection Protocol (ACP), settings hooks, and JSONL log parsing.
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+```
 
-### Authentication
-The SDK requires standard developer-oriented Google Cloud credentials:
-- Set `GOOGLE_APPLICATION_CREDENTIALS` to point to a service account JSON key file.
-- Or run `gcloud auth application-default login` to configure Application Default Credentials (ADC).
-- **Google AI Pro Limitation:** Consumer accounts with Google AI Pro or Google One AI Premium subscriptions (including Gemini Advanced) cannot be used to authenticate the SDK.
+The installer normally places `agy` in `~/.local/bin`. Ensure that directory is
+on `PATH`, then launch the interactive client once:
 
-### Model Configuration and Overrides
-- When `stage_models` overrides the model for a stage, the adapter attempts to pass it to the SDK.
-- Because the SDK is in preview, if it does not accept model overrides or other capability configurations, the adapter will log a warning and run with SDK defaults.
-- Post-hoc snapshot enforcement and Cybervisor's contract/verifier system remain active as a backstop.
+```bash
+agy
+```
 
-### Permission Enforcement
-- The adapter maps `disallowed_tools` and `read_only_paths` to SDK capabilities where supported.
-- **Post-Hoc Snapshots:** `ACPReadOnlySnapshot` provides post-hoc filesystem write protection. Cybervisor captures file hashes before and after the agent run and automatically restores any protected-file modifications.
+Complete browser or device-flow sign-in and exit the client. Cybervisor does
+not install, upgrade, authenticate, or edit the persistent Antigravity settings
+file. Run `cybervisor doctor` after setup.
 
----
+## Autonomous permission ownership
 
-## Troubleshooting
+Cybervisor launches managed stages with
+`--dangerously-skip-permissions`. This prevents an unattended run from waiting
+for an approval or silently skipping required work.
 
-### Antigravity SDK not installed
-If `cybervisor doctor` or preflight reports that the Antigravity SDK is not installed:
-- Reinstall Cybervisor using `uv sync` or `pip install .`.
-- Confirm installation by running:
-  ```bash
-  python -c "import google.antigravity; print('OK')"
-  ```
-- Ensure your Python version (3.11+) and OS are supported by the `google-antigravity` wheel (the SDK is platform-specific and contains a compiled runtime).
+Cybervisor remains responsible for the execution boundary:
 
-### Antigravity SDK platform not supported
-If `cybervisor doctor` reports "does not expose the Agent API on this platform":
-- Ensure your OS and Python versions are compatible with the SDK wheel.
-- Try re-installing Cybervisor with `pip install --force-reinstall .`.
+- `read_only_paths` uses the shared Git-backed change guard.
+- Stage contracts validate required deliverables.
+- Verifier decisions control completion for stages without contracts.
 
-### Antigravity authentication not configured
-If the adapter reports that authentication is missing or expired:
-- Set `GOOGLE_APPLICATION_CREDENTIALS` or run `gcloud auth application-default login`.
-- Verify credentials work by running:
-  ```bash
-  python -c "import google.auth; print(google.auth.default())"
-  ```
-- **Note:** Direct browser login for a consumer account (`gcloud auth login`) will not work for SDK authentication.
+The command-line permission override applies only to the child process.
+Cybervisor never migrates or modifies
+`~/.gemini/antigravity-cli/settings.json`.
 
----
+## Models, timeouts, and conversations
+
+- A `stage_models` value is passed verbatim with `--model`. An invalid value
+  fails loudly; Cybervisor never substitutes a default.
+- Headless runs use a one-hour print timeout by default.
+- Set `CYBERVISOR_ANTIGRAVITY_PRINT_TIMEOUT` to a positive number of seconds to
+  override it. Values above 86,400 seconds are capped.
+- Eligible retries resume the captured conversation with
+  `--conversation <id>` and a continuation prompt.
+- If the CLI explicitly reports that the conversation is unavailable,
+  Cybervisor retries once with a fresh conversation. Authentication, model,
+  permission, and timeout errors do not trigger that fallback.
+
+## Live stream output
+
+Stage logs render the `stream-json` events that `agy` actually emits:
+
+- `tool call:` for every tool step, with its parameters.
+- `tool result received (...)` with a bounded summary. Output that spans
+  multiple lines or exceeds 200 characters is reduced to a
+  `<n> lines, <m> chars` count so one log entry stays on one line.
+- `reply:` for assistant text.
+- `agent error: ...` for CLI error steps, or
+  `agent error reported (no detail)` when the step carries no message.
+
+Two limits come from the CLI itself, not from Cybervisor:
+
+- **No `thinking:` events.** The CLI reports reasoning only as a
+  `usage.thinking_tokens` count and never streams the reasoning text. No CLI
+  flag exposes it; `--effort` changes reasoning depth, not visibility.
+- **Replies arrive at the end.** The CLI attaches assistant text only to the
+  final `agent_response` step. Intermediate steps carry usage totals with no
+  text, so there is no running narration between tool calls.
+
+Full raw events are always retained in the stage JSONL log under
+`.cybervisor/logs/stages/`.
 
 ## Cancellation
 
-The Antigravity adapter runs in-process via a background thread. When you run `cybervisor cancel`, the daemon sets a cooperative stop event that the SDK thread checks between iterations, then joins the thread. The task stops promptly — the SDK thread does not continue after cancellation.
+`cybervisor cancel` or a foreground interrupt sends `SIGINT` to the real `agy`
+process group. The CLI gets a brief opportunity to emit an `INTERRUPTED`
+result, after which Cybervisor applies bounded termination and descendant
+cleanup. A Cybervisor-requested cancellation exits with status 130.
+
+## Troubleshooting
+
+### `agy` was not found
+
+Re-run the install command, add `~/.local/bin` to `PATH`, and verify:
+
+```bash
+agy --version
+```
+
+### Unsupported CLI or missing `stream-json`
+
+Cybervisor requires version 1.1.8 or newer. Re-run the official installer to
+upgrade. For a repackaged build with an unrecognized version string,
+`cybervisor doctor` checks `agy --help` for the required output capability.
+
+### Authentication failure
+
+Run `agy` interactively and complete sign-in. Headless Cybervisor stages close
+stdin and terminate any authentication prompt, so they fail with setup guidance
+instead of waiting for interactive login.
+
+### Non-`SUCCESS` result
+
+`ERROR`, `CANCELED`, `INTERRUPTED`, `INVALID`, `WAITING`, and `RUNNING` are
+failures even when `agy` exits with code 0. Review the CLI error and diagnostic
+tail shown by Cybervisor. A missing terminal result also fails the stage.

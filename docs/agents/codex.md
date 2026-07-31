@@ -4,35 +4,58 @@ title: Codex Agent Guide
 
 # Codex Agent Guide
 
-> **Audience: Users** — Operators configuring or troubleshooting the Codex agent adapter.
+> **Audience: Users** - Operators configuring or troubleshooting the Codex agent adapter.
 
-The Codex adapter enables `cybervisor` to use the Codex CLI as a pipeline agent. It communicates via the Codex app-server JSON-RPC protocol.
+The Codex adapter uses the official `openai-codex` Python SDK. Its matching
+`openai-codex-cli-bin` dependency provides the runtime, so a separately
+installed `codex` executable is not required on `PATH`.
 
----
+## Runtime
 
-## Configuration and Setup
+- Cybervisor starts one SDK thread per stage attempt.
+- The requested model and current workspace are passed to the SDK.
+- Runs use full-access sandboxing and deny all interactive approvals so stages
+  remain autonomous.
+- Live SDK notifications are shown as `reply:`, `thinking:`, and `tool call:`
+  messages.
+- Reply and reasoning deltas are ignored. Complete SDK message and reasoning
+  items are rendered once when their item lifecycle finishes.
+- The SDK's final response is the authoritative stage reply.
 
-### Prerequisites
-- Requires the `codex` CLI on `PATH`.
-- CLI check command: `codex --version`.
+```mermaid
+flowchart TD
+    A[Start SDK thread] --> B[Run turn]
+    B --> C[Capture baseline and validate protected paths]
+    C --> D[Evaluate contract or verifier]
+    D -->|Approve| E[Return final response]
+    D -->|Block| F[Create continuation prompt]
+    F -->|Same thread, under 25 turns| B
+    F -->|Limit reached| G[Fail stage attempt]
+```
 
-### Execution and Sandbox Overrides
-- Cybervisor launches Codex with configuration overrides `sandbox_mode="danger-full-access"` and `approval_policy="never"`, plus matching app-server thread/turn sandbox settings.
-- This is because Cybervisor itself provides the outer sandbox/container boundary. Using these overrides prevents nested Codex sandbox configuration warnings (such as missing `bubblewrap` warnings).
+## Cancellation
 
-### Turn Completion
-- Cybervisor completes the app-server handshake before starting a thread.
-- Assistant replies are collected from the active turn's live item stream.
-- Current Codex versions can send a terminal completion with an intentionally empty item list because the completed items were already streamed separately. This is expected and does not produce a warning.
-- The terminal status remains authoritative. Failed and interrupted turns fail the stage attempt and are not submitted to the verifier as successful replies.
+`cybervisor cancel`, SIGINT, and SIGTERM interrupt the active Codex turn. If the
+turn does not finish within the bounded cancellation window, Cybervisor closes
+the SDK transport to terminate the bundled runtime and unblock the waiting
+turn. An interrupted stage exits with code `130` and does not start a verifier
+continuation.
 
-### Permission Enforcement
-Cybervisor intercepts and enforces Codex write protection via two layers:
-1. **Approval Callback Interception:** The adapter autonomously handles app-server approval callbacks for command, file-change, and permission requests.
-   - For `item/fileChange/requestApproval` calls, protected paths matching `read_only_paths` receive a `deny` response (this is optimistic, as Codex may bypass via alternative paths).
-   - For `item/permissions/requestApproval` calls, filesystem entries exclude protected patterns instead of granting blanket root write access.
-2. **Post-Hoc Snapshots:** Because the interception layer is optimistic, the primary enforcement layer snapshots working-tree files matching active `read_only_paths`. Protected changes are restored after every turn outcome, including failed and interrupted turns.
-3. **Failure on Violation:** Any protected working-tree change detected by the snapshot layer fails the current stage attempt.
-4. **Logging:** Each enforcement decision (such as created, modified, or deleted file restorations) is logged to `.cybervisor/hooks/hook-events.jsonl` with the action type and restoration status.
+## Read-Only Paths
 
-Git administration directories and `.git` files are not included in post-hoc snapshots. Restoring selected Git database files is not transactional and can corrupt repository state. Use a disposable checkout or an outer read-only filesystem boundary when refs, hooks, indexes, or other Git metadata must remain immutable.
+Codex cannot express selected protected paths in its SDK sandbox. Cybervisor
+therefore captures a Git-backed baseline for `read_only_paths`, checks after
+every turn outcome, and reports created, modified, or deleted protected files
+without restoring them.
+Any detected protected-path change fails the stage attempt after detection.
+
+This is Git-backed detect-only enforcement: it does not prevent the write before it occurs.
+Use an outer read-only filesystem boundary when data must never be writable.
+Git administration and ignored files are outside the guard's Git-visible
+scope.
+
+## Troubleshooting
+
+Run `cybervisor doctor`. If the SDK is unavailable, reinstall Cybervisor with
+its locked dependencies, such as with `uv sync`, and verify the import with
+`python -c "import openai_codex"`.

@@ -68,9 +68,10 @@ sources for this adapter.
   payload.
 - Tool names and arguments are mapped into Cybervisor's canonical `tool call:`
   output while retaining the Cursor-visible tool name.
-- Read, search, edit, and shell-execute tool calls include normalized parameters
+- Read, search, edit, and shell-execute tool calls use consistent summary labels
   such as `file_path`, `pattern`, or `command` in live stderr and in
-  `.cybervisor/logs/stages/` JSONL.
+  `.cybervisor/logs/stages/` JSONL. The recorded arguments retain the names
+  supplied by the Cursor SDK; alias lookup does not add fields to them.
 - Replies are evaluated after each SDK turn. If the verifier blocks completion,
   Cybervisor sends a continuation prompt through the same SDK agent.
 
@@ -107,15 +108,16 @@ The adapter does not use ACP session modes or JSON-RPC.
 
 ## Read-Only Paths
 
-Cursor enforces `read_only_paths` only through post-hoc filesystem snapshots:
+Cursor enforces `read_only_paths` only through Git-backed change detection:
 
-1. Cybervisor snapshots protected paths before the SDK turn.
+1. Cybervisor captures Git status and hashes for protected dirty paths before
+   the first stage attempt.
 2. After the turn, it detects protected files that were created, modified, or
    deleted.
-3. It restores protected paths when possible and fails the stage attempt.
+3. It leaves detected changes in place and fails the stage attempt.
 
-This is restorative enforcement, not a pre-write sandbox. A protected file can
-be changed briefly during the turn before Cybervisor restores it. Use a
+This is detect-only enforcement, not a pre-write sandbox. A protected file can
+be changed during the turn and remains changed after detection. Use a
 read-only mount or disposable checkout when writes must be impossible at the
 filesystem boundary.
 

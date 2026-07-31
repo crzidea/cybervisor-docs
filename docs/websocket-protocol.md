@@ -47,7 +47,7 @@ Every message includes:
 | Field | Required | Description |
 |-------|----------|-------------|
 | `prompt` | Conditional | Task description / objective. Required when any stage in the effective slice uses `{objective}` in its `prompt_template`; optional when every stage has a self-contained `prompt_template` (config-driven promptless execution). Omit or pass an empty string for promptless runs. |
-| `cwd` | Yes | Absolute path of the client's working directory; used to resolve workspace-local `.cybervisor/config.yaml` for per-task config reload and to detect nested tasks in the same directory |
+| `cwd` | Yes | Absolute path of the client's working directory; used to resolve workspace-local `.cybervisor/config.yaml` for per-task config reload |
 | `config` | No | Non-empty workspace-relative path to cybervisor.yaml (default: `cybervisor.yaml`); absolute paths and `..` segments are rejected |
 | `start_stage` | No | Non-empty stage name to begin at (default: first stage); must match a stage name in the resolved config |
 | `end_stage` | No | Non-empty stage name to stop after; the named stage is executed, then the pipeline stops; must match a stage name in the resolved config; mutually exclusive with `end_before`; updatable mid-run via `set_stop_stage` |
@@ -57,7 +57,9 @@ Every message includes:
 
 Malformed `run` messages are rejected with an `error` event using code `invalid_message`; the daemon does not synthesize missing required fields. Config selection is limited to files inside the current workspace so the daemon stays aligned with the documented local workflow. Stage names in `start_stage`, `end_stage`, and `end_before` are validated against the stages defined in the resolved config; unknown names result in `invalid_message`. Supplying both `end_stage` and `end_before` results in `mutually_exclusive_end_stage`.
 
-**Server response:** `run_accepted` on success, `error` if a task is already in progress or the message is invalid.
+**Server response:** `run_accepted` when the task is admitted. If another task
+is executing, the accepted task waits in the daemon's serialized execution
+queue. Invalid messages and duplicate task IDs receive an `error`.
 
 ---
 
@@ -162,7 +164,7 @@ Client may send `ping` at any time. Server responds with `pong`.
 }
 ```
 
-`retry_mode` is optional. Values: `fresh` (first attempt or unsupported adapter), `continued` (resumed session), `fallback` (continuation attempted but unavailable). When `retry_mode` is `fallback`, an optional `fallback_reason` string is also included (e.g., `"no_prior_session_id"`).
+`retry_mode` is optional. Values: `fresh` (first attempt or unsupported adapter), `continued` (resumed session), `fallback` (continuation attempted but unavailable). When `retry_mode` is `fallback`, an optional `fallback_reason` string is also included (for example, `"adapter_does_not_support_continuation"`, `"no_prior_session_id"`, or `"conversation_unavailable"`).
 
 ### `stage_complete` — Stage Finished
 
@@ -192,7 +194,7 @@ Client may send `ping` at any time. Server responds with `pong`.
 }
 ```
 
-`retry_mode` is optional. Values: `fresh` (unsupported adapter, starting new session), `continued` (resumed session via adapter-native mechanism), `fallback` (continuation attempted but unavailable). When `retry_mode` is `fallback`, an optional `fallback_reason` string is also included (e.g., `"adapter_does_not_support_continuation"` or `"no_prior_session_id"`).
+`retry_mode` is optional. Values: `fresh` (unsupported adapter, starting new session), `continued` (resumed session via adapter-native mechanism), `fallback` (continuation attempted but unavailable). When `retry_mode` is `fallback`, an optional `fallback_reason` string is also included (for example, `"adapter_does_not_support_continuation"`, `"no_prior_session_id"`, or `"conversation_unavailable"`).
 
 ### `stage_failed` — Stage Exhausted Retries
 
@@ -320,7 +322,7 @@ Extended pong (protocol v2 — when active tasks are present):
 | Task snapshot field | Type | Description |
 |---------------------|------|-------------|
 | `task_id` | `string` | Unique task identifier |
-| `active_stage` | `string \| null` | Current stage name; `null` before first stage execution (displayed as `"initializing"`) |
+| `active_stage` | `string \| null` | Current stage name; `null` while queued or before first stage execution (displayed as `"initializing"`) |
 | `attempt` | `integer` | Current attempt count for the active stage |
 | `status` | `string` | `"running"` (active), `"completed"`, or `"cancelled"` |
 | `cwd` | `string` | Working directory of the task at submission time |
@@ -335,16 +337,15 @@ Note: `pong` is a connection-level keepalive response, not tied to any specific 
 {
   "type": "error",
   "task_id": "550e8400-e29b-41d4-a716-446655440000",
-  "code": "task_in_progress",
-  "message": "A task is already in progress",
+  "code": "task_exists",
+  "message": "Task 550e8400-e29b-41d4-a716-446655440000 already exists",
   "timestamp": "2026-04-02T12:00:00.000Z"
 }
 ```
 
 | Error Code | Description |
 |------------|-------------|
-| `task_in_progress` | Rejected because another task is currently executing |
-| `nested_task_rejected` | A new `run` was submitted in a directory that already has a running task; submit from that directory's CWD instead |
+| `task_exists` | The submitted task ID already exists in the active registry |
 | `unknown_task` | `task_id` not found (e.g., TTL expired) |
 | `multiple_tasks` | Multiple running tasks found in the same directory; disambiguate with an explicit `task_id` |
 | `not_cancellable` | Task is not in a cancellable state |

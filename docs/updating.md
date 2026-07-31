@@ -83,3 +83,25 @@ stages:
 ```
 
 The per-stage approach allows different write-protection patterns for different stages (e.g., design stages protect source code while implementation stages allow full write access).
+
+## Migration: `hook` → `verifier`
+
+The singular `hook` configuration key was renamed to `verifier`. Update any
+existing `cybervisor.yaml` before running the upgraded CLI:
+
+```yaml
+# Before
+hook: {}
+
+# Current
+verifier: {}
+```
+
+The plural `hooks` key is unchanged. It still configures trusted
+`before_stage` and `after_stage` lifecycle commands. The verifier settings
+themselves remain under `llm` in `~/.cybervisor/config.yaml`.
+
+Older releases could leave `.cybervisor/hooks/`, `hook_config.json`, snapshot
+files, or `.cybervisor/hook-events.sock` behind. The current release does not
+create or migrate these files. If they remain from an older run, remove them
+manually after confirming no older Cybervisor process is using them.

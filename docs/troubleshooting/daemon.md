@@ -65,8 +65,10 @@ uv tool upgrade cybervisor
 ### Agent subprocess hangs
 
 - **OpenCode serve** starts an isolated `opencode serve` process per stage. Cybervisor shuts it down via `POST /instance/dispose` when available, otherwise with the same `terminate_process()` sequence (SIGTERM, then SIGKILL). Startup failures and cancellations also terminate the serve process group.
-- **Codex** uses the app-server subprocess with the same bounded termination sequence.
-- **In-process adapters (Claude, Cursor, Antigravity)** use cooperative cancellation. Cursor also requests cancellation through the SDK. The daemon then joins the worker with a bounded timeout and proceeds if it does not exit.
+- **Codex** runs synchronously through the SDK. Cancellation is a no-op until the active turn returns; SDK resources then close normally.
+- **In-process adapters (Claude and Cursor)** use cooperative SDK cancellation.
+- **Antigravity** sends SIGINT to the `agy` process group, waits briefly for an
+  interrupted result, then applies bounded SIGTERM/SIGKILL escalation.
 - If any agent subprocess persists beyond 12 seconds after stage completion, the pipeline-level process sweep should still catch it.
 
 ### Agent-spawned processes remain after pipeline finishes
@@ -93,6 +95,15 @@ This is expected behavior — `--path` stops on the first non-zero exit code so 
 # Fix the issue, then re-run the same command
 cybervisor submit --path prompts/
 ```
+
+### Later plans in a batch ignore `--start-from`
+
+This is intended. `--start-from` and `--resume` apply only to the first plan
+submitted in the current invocation.
+
+- A recovery run can continue the first remaining plan at the selected stage.
+- Every later plan runs from the first configured stage with a fresh session.
+- `--end-after` and `--end-before` still apply to every plan in the batch.
 
 ### `--path` directory has no `.md` files
 
