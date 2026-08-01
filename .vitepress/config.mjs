@@ -58,6 +58,7 @@ export default defineConfig({
         text: "Developer Guides",
         items: [
           { text: "Runtime and Daemon (Developer Reference)", link: "/runtime-internals" },
+          { text: "Native Session Verification Report", link: "/native-session-verification" },
           { text: "Testing Reference", link: "/testing-dev" },
           { text: "Updating (Developer Reference)", link: "/updating-dev" },
           { text: "Development", link: "/development" },
