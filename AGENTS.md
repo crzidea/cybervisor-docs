@@ -15,12 +15,12 @@ npm run preview
 npm run deploy
 ```
 
-Run `npm run sync` after cloning and before `npm run dev` or `npm run build`. The copied `docs/` tree is gitignored.
+Run `npm run sync` after changing canonical docs and commit the refreshed `docs/` snapshot. Isolated builds without the sibling checkout use that committed snapshot.
 
 ## Documentation Source
 
 - Edit Markdown only in `../cybervisor/docs/`.
-- Never edit generated files under `cybervisor-docs/docs/`; they are overwritten by `npm run sync`.
+- Never edit generated files under `cybervisor-docs/docs/`; they are overwritten by `npm run sync`, then committed for isolated deployments.
 - When adding or renaming pages under `cybervisor/docs/`, update navigation in `.vitepress/config.mjs` so the sidebar and top nav stay complete.
 
 ## Documentation

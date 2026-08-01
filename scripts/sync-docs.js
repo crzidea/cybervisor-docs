@@ -7,9 +7,15 @@ const SOURCE = path.resolve(__dirname, "..", "..", "cybervisor", "docs");
 const DEST = path.resolve(__dirname, "..", "docs");
 
 if (!fs.existsSync(SOURCE)) {
+  if (fs.existsSync(path.join(DEST, "index.md"))) {
+    console.log(
+      `Local documentation source not found at ${SOURCE}; using the committed docs snapshot`
+    );
+    process.exit(0);
+  }
+
   console.error(
-    `Error: source directory not found at ${SOURCE}\n` +
-      "Make sure the cybervisor repository is cloned alongside cybervisor-docs."
+    `Error: no documentation source found at ${SOURCE} and no committed docs snapshot is available`
   );
   process.exit(1);
 }
@@ -31,16 +37,6 @@ function rewriteLinks(content, filePath) {
   content = content.replace(
     /\[([^\]]*)\]\(\.\.\/README\.md\)/g,
     "[$1](https://github.com/crzidea/cybervisor)"
-  );
-
-  content = content.replace(
-    /\[([^\]]*)\]\(\.\.\/cybervisor-container\/?([^)]*)\)/g,
-    "[$1](https://github.com/crzidea/cybervisor-container)"
-  );
-
-  content = content.replace(
-    /\.\.\/cybervisor-container/g,
-    "https://github.com/crzidea/cybervisor-container"
   );
 
   content = content.replace(
@@ -119,7 +115,5 @@ const sourceFilesList = sourceFiles
   .filter((f) => f.endsWith(".md"))
   .map((f) => path.relative(SOURCE, f));
 
-console.log(
-  `Synced ${sourceFilesList.length} docs files from ${SOURCE} to ${DEST}`
-);
+console.log(`Synced ${sourceFilesList.length} docs files from ${SOURCE} to ${DEST}`);
 console.log("Files:", sourceFilesList.join(", "));

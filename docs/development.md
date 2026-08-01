@@ -50,7 +50,7 @@ Release helper:
 ./scripts/publish.sh patch  # or minor, major
 ```
 
-The script requires a clean git working tree, bumps the package version, refreshes `uv.lock`, creates a release commit and annotated git tag like `v0.7.1`, pushes the tag, then tags `https://github.com/crzidea/cybervisor-container` to trigger the GHCR image workflow. The container workflow checks out the matching `cybervisor` tag and builds the `cybervisor` target from this repository's `Dockerfile`.
+The script requires a clean git working tree, bumps the package version, refreshes `uv.lock`, creates a release commit and annotated git tag like `v0.7.1`, and pushes the commit and tag. The tag triggers the repository's release workflow, which publishes the Python package and builds the multi-platform GHCR image directly from this repository's `Dockerfile`.
 
 ## Test Coverage
 
