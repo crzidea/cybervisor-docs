@@ -30,8 +30,7 @@ cybervisor --version
 
 ## 2. Choose Your Harness
 
-Set the default harness. Options are `claude`, `codex`, `opencode`, `cursor`,
-`antigravity`, or `mock`:
+Set the default harness. Options are `claude`, `codex`, `opencode`, `cursor`, `antigravity`, or `mock`:
 
 ```bash
 cybervisor use claude
@@ -47,12 +46,7 @@ cybervisor use mock
 
 ## 3. Configure Verifier Credentials (Non-Mock)
 
-Mock mode needs no credentials. For real harnesses, `llm.api_key` in
-`~/.cybervisor/config.yaml` is required only when an effective non-contract
-stage uses model-assisted stop verification. Contract-enabled stages validate
-their result artifacts locally, so a contract-only slice can run without this
-key. The selected harness may still need separate credentials; `llm.api_key`
-configures the verifier, not the coding runtime.
+Mock mode needs no credentials. For real harnesses, `llm.api_key` in `~/.cybervisor/config.yaml` is required only when an effective non-contract stage uses model-assisted stop verification. Contract-enabled stages validate their result artifacts locally, so a contract-only slice can run without this key. The selected harness may still need separate credentials; `llm.api_key` configures the verifier, not the coding runtime.
 
 ```bash
 mkdir -p ~/.cybervisor
@@ -75,8 +69,7 @@ cybervisor doctor
 
 ### Runtime Defaults and Per-Stage Overrides
 
-Set the global harness and optional effort default, then group stage-specific
-changes under `stage_overrides`:
+Set the global harness and optional effort default, then group stage-specific changes under `stage_overrides`:
 
 ```yaml
 harness: claude
@@ -93,9 +86,7 @@ stage_overrides:
     effort: high
 ```
 
-Each override may set `harness`, `model`, `effort`, any subset, or nothing.
-See [Configuration Reference](configuration.md#global-harness-and-per-stage-runtime-overrides)
-for resolution order, supported efforts, reload behavior, and migration.
+Each override may set `harness`, `model`, `effort`, any subset, or nothing. See [Configuration Reference](configuration.md#global-harness-and-per-stage-runtime-overrides) for resolution order, adapter destinations, provider-owned effort validity, reload behavior, and migration.
 
 ---
 
@@ -116,17 +107,11 @@ Both create a `cybervisor.yaml` with the full pipeline configuration.
 
 ### The `mock` Harness
 
-The `mock` harness (`cybervisor use mock`) requires no external binary or API
-key. It returns a canned success response for every stage, making it useful for
-CI testing, pipeline structure validation, and development without real model
-access.
+The `mock` harness (`cybervisor use mock`) requires no external binary or API key. It returns a canned success response for every stage, making it useful for CI testing, pipeline structure validation, and development without real model access.
 
 ### The `cursor` Harness
 
-The `cursor` harness uses the `cursor-sdk>=1.0.24` Python package, included as a
-Cybervisor dependency. The platform wheel bundles its own bridge launcher, so no
-`cursor-sdk-bridge` binary needs to be on `PATH`. Configure authentication only
-through the active Cybervisor config:
+The `cursor` harness uses the `cursor-sdk>=1.0.24` Python package, included as a Cybervisor dependency. The platform wheel bundles its own bridge launcher, so no `cursor-sdk-bridge` binary needs to be on `PATH`. Configure authentication only through the active Cybervisor config:
 
 ```yaml
 harness: cursor
@@ -135,43 +120,26 @@ harnesses:
     api_key: your-cursor-api-key
 ```
 
-Environment variables and Cursor CLI login state are not used. Run
-`cybervisor doctor` to verify the SDK and API key. See the
-[Cursor Harness Guide](/agents/cursor.html) for complete setup details.
+Environment variables and Cursor CLI login state are not used. Run `cybervisor doctor` to verify the SDK and API key. See the [Cursor Harness Guide](/agents/cursor.html) for complete setup details.
 
 ### The `claude` Harness
 
-The `claude` harness uses the `claude-agent-sdk` Python SDK and runs in-process
-(no CLI binary needed). The SDK is included as a standard Cybervisor
-dependency, so no separate install is required. Authentication requires a
-supported provider credential such as `ANTHROPIC_API_KEY`. Run
-`cybervisor doctor` to verify the adapter reports ready. See the
-[Claude Code Harness Guide](/agents/claude.html) for full setup details.
+The `claude` harness uses the `claude-agent-sdk` Python SDK and runs in-process (no CLI binary needed). The SDK is included as a standard Cybervisor dependency, so no separate install is required. Authentication requires a supported provider credential such as `ANTHROPIC_API_KEY`. Run `cybervisor doctor` to verify the adapter reports ready. See the [Claude Code Harness Guide](/agents/claude.html) for full setup details.
 
 ### The `antigravity` Harness
 
-The `antigravity` harness requires the official `agy` CLI version 1.1.8 or
-newer. Install it on macOS or Linux, then launch it once to sign in:
+The `antigravity` harness requires the official `agy` CLI version 1.1.8 or newer. Install it on macOS or Linux, then launch it once to sign in:
 
 ```bash
 curl -fsSL https://antigravity.google/cli/install.sh | bash
 agy
 ```
 
-Cybervisor uses the CLI's headless `stream-json` mode and the user's normal
-Antigravity login. Values from `stage_overrides.<stage>.model` are passed
-verbatim. See the [Antigravity Harness Guide](/agents/antigravity.html) for
-permission ownership, timeout configuration, cancellation, and troubleshooting.
+Cybervisor uses the CLI's headless `stream-json` mode and the user's normal Antigravity login. Values from `stage_overrides.<stage>.model` are passed verbatim. See the [Antigravity Harness Guide](/agents/antigravity.html) for permission ownership, timeout configuration, cancellation, and troubleshooting.
 
 ### The `opencode` Harness
 
-The `opencode` harness requires the `opencode` CLI on `PATH`, authenticated
-through the normal OpenCode CLI workflow, with `opencode serve` support
-(OpenCode v0.12.0 or later). `cybervisor doctor` checks serve-mode support.
-Each stage starts an isolated local server and injects model, effort,
-permission, and file-context settings without modifying workspace config. Use
-`stage_overrides.<stage>.model` to override its model. See
-[OpenCode Notes](configuration.md#opencode-notes) for setup details.
+The `opencode` harness requires the `opencode` CLI on `PATH`, authenticated through the normal OpenCode CLI workflow, with `opencode serve` support (OpenCode v0.12.0 or later). `cybervisor doctor` checks serve-mode support. Each stage starts an isolated local server and injects model, effort, permission, and file-context settings without modifying workspace config. Use `stage_overrides.<stage>.model` to override its model. See the [OpenCode Harness Guide](/agents/opencode.html) for setup details.
 
 ---
 
@@ -186,8 +154,7 @@ uv tool install 'cybervisor[completions]'
 eval "$(register-python-argcomplete cybervisor)"
 ```
 
-Add the `eval` line to `~/.bashrc` to persist across sessions. This mode
-provides dynamic completions for stage names, harnesses, and document IDs.
+Add the `eval` line to `~/.bashrc` to persist across sessions. This mode provides dynamic completions for stage names, harnesses, and document IDs.
 
 **Static script (no dependencies):**
 

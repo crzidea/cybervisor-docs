@@ -8,21 +8,14 @@ title: OpenCode Harness Guide
 
 The OpenCode adapter enables `cybervisor` to use the OpenCode CLI as a pipeline agent. Unlike standard stdio/JSON-RPC adapters, it communicates over loopback HTTP via `opencode serve`. Each pipeline stage starts an isolated serve instance on an allocated port, runs a session, and shuts the server down upon completion. On retry, the adapter reuses the existing serve process and session instead of starting a new one, sending a continuation prompt that tells the agent to address the failure without restarting completed work.
 
-Cybervisor accepts all five normalized effort values and writes an explicit
-`reasoningEffort` into the generated runtime configuration. Where it is
-written depends on the resolved model:
+Cybervisor accepts any normalized effort string and writes it unchanged as `reasoningEffort` in the generated runtime configuration. The provider and selected model decide which values are valid. Where the option is written depends on the resolved model:
 
-1. **Provider-qualified model** (for example `openai/gpt-5`): the option goes
-   under that provider's model options, so only the selected model is
-   affected.
-2. **Bare model name or no model**: there is no provider to key on, so the
-   option goes under every agent's options in the generated config.
+1. **Provider-qualified model** (for example `openai/gpt-5`): the option goes under that provider's model options, so only the selected model is affected.
+2. **Bare model name or no model**: there is no provider to key on, so the option goes under every agent's options in the generated config.
 
-The option is never written at the top level of the config. The OpenCode
-config schema forbids unknown root keys, so a root-level `options` entry
-would make OpenCode reject the entire generated runtime configuration.
+The option is never written at the top level of the config. The OpenCode config schema forbids unknown root keys, so a root-level `options` entry would make OpenCode reject the entire generated runtime configuration.
 
-Actual support remains provider dependent; provider errors are surfaced.
+Actual support remains provider dependent. A deterministic 4xx configuration rejection or configuration-evidenced serve startup failure ends the stage on its first attempt. Transient statuses such as 408, 409, 425, and 429 remain retryable. Serve startup output is continuously drained and its bounded tail is included in failure diagnostics.
 
 ---
 
@@ -35,9 +28,7 @@ Actual support remains provider dependent; provider errors are surfaced.
 - Requires `uvx` on `PATH` (bundled with `uv`) for the yieldshell MCP server. If `uvx` cannot resolve `mcp-yieldshell`, the agent will have no shell tool available.
 
 ### Model Configuration and Overrides
-- **Custom Stage Model:** If a `stage_overrides` entry supplies a model for an
-  OpenCode stage, the adapter injects it through the
-  `OPENCODE_CONFIG_CONTENT` environment variable.
+- **Custom Stage Model:** If a `stage_overrides` entry supplies a model for an OpenCode stage, the adapter injects it through the `OPENCODE_CONFIG_CONTENT` environment variable.
 - **Default Resolution:** If no override is specified, the adapter automatically resolves and propagates the user's default OpenCode model from global and project config files. This ensures the daemon matches the interactive model instead of falling back to the default `opencode/big-pickle`.
 - **Note:** Cybervisor does **not** create or edit `./opencode.json` or `./cybervisor/opencode.json` in the workspace; all overrides are injected dynamically via environment variables.
 
@@ -113,7 +104,7 @@ When a stage fails and Cybervisor retries it, the OpenCode adapter reuses the ex
 1. On the first attempt, the adapter starts a new `opencode serve` process and creates a session.
 2. If the attempt fails, the adapter keeps the serve process and session alive instead of shutting them down.
 3. On retry, Cybervisor sends a continuation prompt to the existing session via the serve HTTP API. The session ID from the failed attempt is reused.
-4. If the serve process has crashed or the session is unavailable, the adapter falls back to a fresh start and logs the reason.
+4. If the serve process dies without configuration-rejection evidence or the session is unavailable, the adapter falls back to a fresh start and logs the reason. Configuration-evidenced death aborts without retry.
 
 ### Fallback to fresh retry
 You may see a warning log like:
@@ -121,7 +112,7 @@ You may see a warning log like:
 [Implement][opencode] retry continuation unavailable (serve_process_exited_with_code_1); falling back to fresh start
 ```
 - **Cause:** The `opencode serve` process from the previous attempt is no longer running or the session is unavailable.
-- **Resolution:** No action needed — Cybervisor automatically starts a new serve process and session. The retry still counts toward `max_retries`.
+- **Resolution:** For unexplained death, no action is needed: Cybervisor starts a new serve process and the retry counts toward `max_retries`. An explicit configuration diagnosis instead requires correcting the configured model, effort, or provider option before a later run.
 
 The `<fallback_reason>` is one of:
 - `serve_process_exited_with_code_<n>` — the prior serve subprocess has exited (the exit code is appended to the reason).

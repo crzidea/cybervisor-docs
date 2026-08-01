@@ -19,21 +19,30 @@ uv run mypy --strict src/
 uv run pytest
 ```
 
+## Deferred adapter cleanup
+
+The effort-passthrough work intentionally leaves these focused follow-ups:
+
+- classify Cursor missing-key failures only after the SDK exposes stable structured evidence;
+- classify Antigravity authentication only after its CLI contract stabilizes;
+- remove Antigravity's redundant result override after all consumers use the generic handle error channel;
+- replace the six-element stage-result tuple with a typed result object;
+- remove the dead, test-only stage usage helper.
+
 For self-hosted E2E or verify-stage smoke tests, do not run from the repository root when the goal is to simulate a generated project. Create an isolated demo workspace first, typically with:
 
 ```bash
 ./scripts/e2e-demo-simple-project.sh
 ```
 
-For a fast smoke test that exercises the full pipeline through `Verify` using a minimal feature prompt and mock LLM API:
+For a fast smoke test that exercises `Review Plan` through `Verify` using a minimal feature prompt and mock LLM API:
 
 ```bash
 ./scripts/e2e-verify-smoke.sh
 ./scripts/e2e-verify-smoke.sh --harness claude   # use Claude Code adapter instead of mock
 ```
 
-Both modes route all LLM calls (post-run verifier and harness-backed stage) through the
-bundled mock API server, so no real API keys are needed.
+Both modes route all LLM calls (post-run verifier and harness-backed stage) through the bundled mock API server, so no real API keys are needed.
 
 Release helper:
 

@@ -86,8 +86,7 @@ The per-stage approach allows different write-protection patterns for different 
 
 ## Migration: `hook` → `verifier`
 
-The singular `hook` configuration key was renamed to `verifier`. Update any
-existing `cybervisor.yaml` before running the upgraded CLI:
+The singular `hook` configuration key was renamed to `verifier`. Update any existing `cybervisor.yaml` before running the upgraded CLI:
 
 ```yaml
 # Before
@@ -97,13 +96,6 @@ hook: {}
 verifier: {}
 ```
 
-The plural `hooks` key still configures trusted `before_stage` and
-`after_stage` lifecycle commands in `cybervisor.yaml`. The active global
-configuration now accepts the same mapping as user-level defaults. Pipeline
-phase strings replace those defaults and phase-level `null` disables them.
-Verifier settings remain under `llm` in `~/.cybervisor/config.yaml`.
+The plural `hooks` key still configures trusted `before_stage` and `after_stage` lifecycle commands in `cybervisor.yaml`. The active global configuration now accepts the same mapping as user-level defaults. Pipeline phase strings replace those defaults and phase-level `null` disables them. Verifier settings remain under `llm` in `~/.cybervisor/config.yaml`.
 
-Older releases could leave `.cybervisor/hooks/`, `hook_config.json`, snapshot
-files, or `.cybervisor/hook-events.sock` behind. The current release does not
-create or migrate these files. If they remain from an older run, remove them
-manually after confirming no older Cybervisor process is using them.
+Older releases could leave `.cybervisor/hooks/`, `hook_config.json`, snapshot files, or `.cybervisor/hook-events.sock` behind. The current release does not create or migrate these files. If they remain from an older run, remove them manually after confirming no older Cybervisor process is using them.

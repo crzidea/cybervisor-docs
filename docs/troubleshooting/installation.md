@@ -52,26 +52,22 @@ The API key is present but the remote endpoint rejected it (401 Unauthorized).
 
 ## Cursor Adapter Preflight
 
-When Cursor is selected globally or for an effective stage, `cybervisor doctor`
-checks the SDK import and `harnesses.cursor.api_key` in the active config.
+When Cursor is selected globally or for an effective stage, `cybervisor doctor` checks the SDK import and `harnesses.cursor.api_key` in the active config.
 
 ### `Doctor: adapter 'cursor' blocked` — SDK missing
 
-Install Cybervisor with synchronized dependencies, or install the minimum SDK
-version in the same Python environment:
+Install Cybervisor with synchronized dependencies, or install the minimum SDK version in the same Python environment:
 
 ```bash
 pip install "cursor-sdk>=1.0.24"
 cybervisor doctor
 ```
 
-The platform wheel bundles its own bridge launcher, so a missing
-`cursor-sdk-bridge` on `PATH` does not block Cursor.
+The platform wheel bundles its own bridge launcher, so a missing `cursor-sdk-bridge` on `PATH` does not block Cursor.
 
 ### `Doctor: adapter 'cursor' blocked` — API key missing
 
-Add the key under `harnesses.cursor.api_key` in the active home or workspace-local
-config. `CURSOR_API_KEY` is not used as a fallback.
+Add the key under `harnesses.cursor.api_key` in the active home or workspace-local config. `CURSOR_API_KEY` is not used as a fallback.
 
 ---
 

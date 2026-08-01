@@ -30,9 +30,7 @@ That script:
 
 ## Mock Adapter (`harness: mock`)
 
-When `harness: mock` is set in the active global config, the pipeline uses the
-built-in mock adapter instead of launching an external harness. The adapter
-completes every stage with a zero-exit process and:
+When `harness: mock` is set in the active global config, the pipeline uses the built-in mock adapter instead of launching an external harness. The adapter completes every stage with a zero-exit process and:
 - Emits contract artifacts for stages that have a contract with field-injection routes (e.g. `Review Plan`, `Review Code`). The status value is the first route key from the loaded config.
 - Also emits contract artifacts for stages with `contract.required_tasks` even when routes have no injections, because `required_tasks` enforcement needs the artifact.
 - Does **not** emit contract artifacts for routing-only stages — stages whose routes all redirect to other stages without injected fields and without `required_tasks`.
@@ -92,10 +90,7 @@ cybervisor sandbox --group-add 123 --group-add users
 
 ### Image Pull Behavior
 
-By default, `cybervisor sandbox` pulls the image from the registry before
-starting the container. This ensures the running container matches the latest
-published version. Docker's layer progress streams live to the terminal, and
-there is no artificial timeout.
+By default, `cybervisor sandbox` pulls the image from the registry before starting the container. This ensures the running container matches the latest published version. Docker's layer progress streams live to the terminal, and there is no artificial timeout.
 
 - **Pull succeeds**: Container starts with the freshly pulled image.
 - **Pull fails but a local image exists**: A warning is logged and the container starts with the local image. This covers intermittent network errors and registry outages.
@@ -110,8 +105,7 @@ When `cybervisor sandbox` starts, it logs two labeled version lines:
 INFO | cybervisor CLI 0.18.1
 INFO | cybervisor daemon 0.18.1
 ```
-The **CLI** line shows the host's installed version. If a newer release is available on PyPI, it appends the latest version: `(latest: 0.18.2)`.
-The **daemon** line shows the version running inside the container. Both lines should display the same version number. If they differ, the container image may be outdated — pull the latest image with `cybervisor sandbox` (without `--no-pull`) or run `docker pull ghcr.io/crzidea/cybervisor:latest`.
+The **CLI** line shows the host's installed version. If a newer release is available on PyPI, it appends the latest version: `(latest: 0.18.2)`. The **daemon** line shows the version running inside the container. Both lines should display the same version number. If they differ, the container image may be outdated — pull the latest image with `cybervisor sandbox` (without `--no-pull`) or run `docker pull ghcr.io/crzidea/cybervisor:latest`.
 
 ### Network Architecture
 The container uses `--network=host`, sharing the host's network stack directly. The `--host` and `--port` flags are passed through to `cybervisor serve` inside the container, so the daemon binds to the specified address and port without Docker port mapping. This means the container can reach all external services the host can (package registries, API endpoints, git remotes).
@@ -145,17 +139,11 @@ DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
 cybervisor sandbox --mount /var/run/docker.sock:/var/run/docker.sock --group-add "$DOCKER_GID"
 ```
 
-`--docker` composes with explicit `--mount` and `--group-add` values. It adds
-the socket mount and group alongside anything you pass manually.
+`--docker` composes with explicit `--mount` and `--group-add` values. It adds the socket mount and group alongside anything you pass manually.
 
-When `DOCKER_HOST` uses a `unix://` path, `--docker` also forwards that setting
-into the container. For non-Unix values such as `tcp://`, it uses the default
-`/var/run/docker.sock` path instead.
+When `DOCKER_HOST` uses a `unix://` path, `--docker` also forwards that setting into the container. For non-Unix values such as `tcp://`, it uses the default `/var/run/docker.sock` path instead.
 
-> **Security note:** Passing the Docker socket group expands host-level trust.
-> Processes inside the container can control the host Docker daemon, which
-> effectively grants root-equivalent access on the host. Only use this where
-> you accept that trust boundary expansion.
+> **Security note:** Passing the Docker socket group expands host-level trust. Processes inside the container can control the host Docker daemon, which effectively grants root-equivalent access on the host. Only use this where you accept that trust boundary expansion.
 
 **Prefer numeric group IDs.** Use numeric IDs rather than group names whenever the group may not exist inside the container image. A group name like `docker` is only resolved if it exists in the container's `/etc/group`. Numeric IDs work regardless of the image's group database.
 

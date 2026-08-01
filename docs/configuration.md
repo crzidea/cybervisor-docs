@@ -6,9 +6,7 @@ title: Configuration Reference
 
 > **Audience: Users** — Pipeline operators and configuration authors.
 
-`cybervisor` is configured with a `cybervisor.yaml` file. Global harness,
-verifier, and lifecycle-hook defaults reside in
-`~/.cybervisor/config.yaml`.
+`cybervisor` is configured with a `cybervisor.yaml` file. Global harness, verifier, and lifecycle-hook defaults reside in `~/.cybervisor/config.yaml`.
 
 ## Global Flags
 
@@ -19,49 +17,25 @@ verifier, and lifecycle-hook defaults reside in
 
 ## Global Configuration (`~/.cybervisor/config.yaml`)
 
-The global config file is created with `0o600` permissions (owner read/write
-only) to protect API keys and other sensitive credentials from being
-world-readable.
+The global config file is created with `0o600` permissions (owner read/write only) to protect API keys and other sensitive credentials from being world-readable.
 
-Manage the default harness in the active global config with
-`cybervisor use <harness>`. Supported: `claude`, `codex`, `opencode`,
-`cursor`, `antigravity`, and `mock`. When a workspace-local config exists,
-the command updates that file rather than the home config.
+Manage the default harness in the active global config with `cybervisor use <harness>`. Supported: `claude`, `codex`, `opencode`, `cursor`, `antigravity`, and `mock`. When a workspace-local config exists, the command updates that file rather than the home config.
 
-The `llm.api_key` field is required only for stages that need model-assisted
-post-run verification. Contract-enabled stages validate their result artifacts
-locally and do not invoke the verifier, so a contract-only stage slice does
-not require `llm.api_key`. The selected harness may still require its own
-credentials independent of this setting.
+The `llm.api_key` field is required only for stages that need model-assisted post-run verification. Contract-enabled stages validate their result artifacts locally and do not invoke the verifier, so a contract-only stage slice does not require `llm.api_key`. The selected harness may still require its own credentials independent of this setting.
 
 ## Stage executors
 
-Use `prompt` as the preferred spelling for an harness-backed stage. The legacy
-`prompt_template` spelling remains supported and resolves to the same prompt.
-Do not define both keys, including null-valued combinations.
+Use `prompt` as the preferred spelling for an harness-backed stage. The legacy `prompt_template` spelling remains supported and resolves to the same prompt. Do not define both keys, including null-valued combinations.
 
-Stage names may contain normal text and spaces. They must not be `.` or `..`
-and must not contain path separators or control characters because Cybervisor
-uses them in generated artifact, backup, prompt, and log paths.
+Stage names may contain normal text and spaces. They must not be `.` or `..` and must not contain path separators or control characters because Cybervisor uses them in generated artifact, backup, prompt, and log paths.
 
-Use `command` for a non-empty trusted shell string. A command stage cannot also
-define agent-only prompt, contract, iteration, artifact-hook, or read-only
-fields. It may define `max_retries`, `next_stage`, `cleanup`, and
-`backup_artifacts`. A `next_stage` route must not create a direct or indirect
-routing cycle that includes a command stage because command stages cannot
-declare an iteration limit.
+Use `command` for a non-empty trusted shell string. A command stage cannot also define agent-only prompt, contract, iteration, artifact-hook, or read-only fields. It may define `max_retries`, `next_stage`, `cleanup`, and `backup_artifacts`. A `next_stage` route must not create a direct or indirect routing cycle that includes a command stage because command stages cannot declare an iteration limit.
 
-Command-only effective slices are promptless and do not resolve or construct a
-default coding harness. They need neither a harness executable nor
-`llm.api_key`. Mixed pipelines keep normal harness selection for their agent
-stages.
+Command-only effective slices are promptless and do not resolve or construct a default coding harness. They need neither a harness executable nor `llm.api_key`. Mixed pipelines keep normal harness selection for their agent stages.
 
 ## Pipeline lifecycle hooks
 
-The plural `hooks` mapping accepts `before_stage` and `after_stage` in both the
-active global configuration and root of `cybervisor.yaml`. Global hooks are
-user-level defaults. Pipeline values retain whether each phase was omitted,
-set to a command, or explicitly set to `null`.
+The plural `hooks` mapping accepts `before_stage` and `after_stage` in both the active global configuration and root of `cybervisor.yaml`. Global hooks are user-level defaults. Pipeline values retain whether each phase was omitted, set to a command, or explicitly set to `null`.
 
 ```yaml
 # ~/.cybervisor/config.yaml or .cybervisor/config.yaml
@@ -85,64 +59,35 @@ Resolution is independent for each phase:
 | Non-empty string | Pipeline command replaces the global command |
 | Explicit `null` | Disabled, even when globally configured |
 
-An omitted, empty, or whole-mapping `null` pipeline `hooks` section configures
-no overrides and therefore inherits available global defaults. The same
-shapes in global configuration supply no defaults. Commands never chain: at
-most one command runs for each phase.
+An omitted, empty, or whole-mapping `null` pipeline `hooks` section configures no overrides and therefore inherits available global defaults. The same shapes in global configuration supply no defaults. Commands never chain: at most one command runs for each phase.
 
-At either surface, `hooks` must be a mapping or `null`, keys must be strings,
-and the only supported fields are `before_stage` and `after_stage`. Phase
-values must be non-empty strings or `null`; whitespace-only strings and other
-types are rejected. Command text is passed unchanged to the shell, so braces
-and text that resembles a placeholder remain literal.
+At either surface, `hooks` must be a mapping or `null`, keys must be strings, and the only supported fields are `before_stage` and `after_stage`. Phase values must be non-empty strings or `null`; whitespace-only strings and other types are rejected. Command text is passed unchanged to the shell, so braces and text that resembles a placeholder remain literal.
 
-Global serialization emits `hooks` only when at least one command is present
-and omits absent phases. Running `cybervisor use <harness>` preserves these
-commands unchanged. Do not place lifecycle fields on an individual stage.
-The root `verifier` mapping remains separate from plural lifecycle `hooks`.
+Global serialization emits `hooks` only when at least one command is present and omits absent phases. Running `cybervisor use <harness>` preserves these commands unchanged. Do not place lifecycle fields on an individual stage. The root `verifier` mapping remains separate from plural lifecycle `hooks`.
 
 ## Verifier configuration
 
-Use `verifier: {}` in `cybervisor.yaml` when explicitly documenting that
-post-run verification is enabled for the pipeline. Credentials and endpoint
-settings remain in `~/.cybervisor/config.yaml` under `llm`; placing
-`api_endpoint`, `api_key`, or `model` inside `verifier` is rejected.
+Use `verifier: {}` in `cybervisor.yaml` when explicitly documenting that post-run verification is enabled for the pipeline. Credentials and endpoint settings remain in `~/.cybervisor/config.yaml` under `llm`; placing `api_endpoint`, `api_key`, or `model` inside `verifier` is rejected.
 
 ```yaml
 verifier: {}
 ```
 
-The former singular `hook:` key has been removed. Rename it to `verifier:`.
-Plural `hooks:` remains the lifecycle-command feature documented above.
+The former singular `hook:` key has been removed. Rename it to `verifier:`. Plural `hooks:` remains the lifecycle-command feature documented above.
 
 Cybervisor adds these variables to both hook phases:
 
-- `CYBERVISOR_HOOK_PHASE`, `CYBERVISOR_STAGE_NAME`, and
-  `CYBERVISOR_STAGE_EXECUTOR`
-- `CYBERVISOR_STAGE_ATTEMPT`, `CYBERVISOR_STAGE_MAX_RETRIES`,
-  `CYBERVISOR_STAGE_ITERATION`, and `CYBERVISOR_STAGE_MAX_ITERATIONS`
-- `CYBERVISOR_STAGE_SUCCESS`, `CYBERVISOR_STAGE_EXIT_CODE`, and
-  `CYBERVISOR_STAGE_ERROR`
+- `CYBERVISOR_HOOK_PHASE`, `CYBERVISOR_STAGE_NAME`, and `CYBERVISOR_STAGE_EXECUTOR`
+- `CYBERVISOR_STAGE_ATTEMPT`, `CYBERVISOR_STAGE_MAX_RETRIES`, `CYBERVISOR_STAGE_ITERATION`, and `CYBERVISOR_STAGE_MAX_ITERATIONS`
+- `CYBERVISOR_STAGE_SUCCESS`, `CYBERVISOR_STAGE_EXIT_CODE`, and `CYBERVISOR_STAGE_ERROR`
 - `CYBERVISOR_WORKSPACE_ROOT` and `CYBERVISOR_OBJECTIVE`
 - `CYBERVISOR_ROUTED_CONTEXT_JSON`
 
-`CYBERVISOR_ROUTED_CONTEXT_JSON` is a JSON object. Its keys are routed context
-names and its values use Cybervisor's existing string representation. It is
-`{}` when no routed context is available. Before-stage result variables are
-empty. After-stage success is `true` or `false`; exit code and error remain
-empty when unavailable.
+`CYBERVISOR_ROUTED_CONTEXT_JSON` is a JSON object. Its keys are routed context names and its values use Cybervisor's existing string representation. It is `{}` when no routed context is available. Before-stage result variables are empty. After-stage success is `true` or `false`; exit code and error remain empty when unavailable.
 
-Hooks execute from the workspace once per attempt and routed visit. Retries
-increment `attempt` while retaining the visit's `iteration_count`. Cleanup
-runs before the before hook. The after hook runs after the final stage result
-but before backup, completion, context injection, or routing.
+Hooks execute from the workspace once per attempt and routed visit. Retries increment `attempt` while retaining the visit's `iteration_count`. Cleanup runs before the before hook. The after hook runs after the final stage result but before backup, completion, context injection, or routing.
 
-Pipeline lifecycle hooks execute trusted shell commands and inherit the user
-environment. Cybervisor's variables override inherited values with the same
-names. Hooks are not sandboxed and may repeat after failures. Keep them
-idempotent and put stage-selective behavior inside the script. See the
-[migration example](pipeline-authoring.md#migrating-placeholder-based-hooks)
-when updating a placeholder-based hook.
+Pipeline lifecycle hooks execute trusted shell commands and inherit the user environment. Cybervisor's variables override inherited values with the same names. Hooks are not sandboxed and may repeat after failures. Keep them idempotent and put stage-selective behavior inside the script. See the [migration example](pipeline-authoring.md#migrating-placeholder-based-hooks) when updating a placeholder-based hook.
 
 ```yaml
 harness: claude
@@ -157,12 +102,10 @@ server:
   host: 127.0.0.1        # Interface to bind; use 0.0.0.0 to expose externally
   port: 8765            # WebSocket port for daemon mode
   reconnect_ttl_seconds: 300.0   # How long completed/disconnected tasks are retained for resume
-   max_event_buffer: 1000        # Maximum events buffered per task for replay
+  max_event_buffer: 1000        # Maximum events buffered per task for replay
 ```
 
-`harnesses` is the only credential-block key. If an existing config still has
-the legacy top-level `agents:` key, rename it to `harnesses:`; Cybervisor
-rejects the old key and reports both names so the migration is explicit.
+`harnesses` is the only credential-block key. If an existing config still has the legacy top-level `agents:` key, rename it to `harnesses:`; Cybervisor rejects the old key and reports both names so the migration is explicit.
 
 ### Server Settings
 
@@ -194,34 +137,22 @@ cybervisor sandbox --docker               # Docker-in-Docker (socket mount + gro
 
 ### Workspace-Local Config Override
 
-A `.cybervisor/config.yaml` file in the current working directory completely
-replaces `~/.cybervisor/config.yaml` when present. All settings, including
-`usage_recording` and `usage_reporting`, come from the workspace-local file.
-Pipeline configuration (`cybervisor.yaml`) has no CWD override.
+A `.cybervisor/config.yaml` file in the current working directory completely replaces `~/.cybervisor/config.yaml` when present. All settings, including `usage_recording` and `usage_reporting`, come from the workspace-local file. Pipeline configuration (`cybervisor.yaml`) has no CWD override.
 
-This precedence is honored on every stage-attempt reload, not just at task
-start. The files are not merged: a workspace-local file without `hooks`
-supplies no global hook defaults even when the home file defines them. Editing
-or removing the workspace-local file mid-run takes effect at the next attempt.
-If the workspace-local file is removed during a run, the next reload resolves
-`~/.cybervisor/config.yaml` without operator action. See
-[Runtime and Daemon — Per-Stage Config Reload](runtime-user.md#per-stage-config-reload)
-for full reload behavior.
+This precedence is honored on every stage-attempt reload, not just at task start. The files are not merged: a workspace-local file without `hooks` supplies no global hook defaults even when the home file defines them. Editing or removing the workspace-local file mid-run takes effect at the next attempt. If the workspace-local file is removed during a run, the next reload resolves `~/.cybervisor/config.yaml` without operator action. See [Runtime and Daemon — Per-Stage Config Reload](runtime-user.md#per-stage-config-reload) for full reload behavior.
 
 This is useful for teams that need project-specific verifier credentials or model overrides without modifying the global config.
 
 ### Usage Reporting
 
-Local task and stage-attempt accounting is enabled by default. Disable new
-writes without removing or disabling queries:
+Local task and stage-attempt accounting is enabled by default. Disable new writes without removing or disabling queries:
 
 ```yaml
 usage_recording:
   enabled: false
 ```
 
-See [Local Usage Metrics](/usage-metrics.html) for stored fields, privacy,
-filtering, date, grouping, and coverage behavior.
+See [Local Usage Metrics](/usage-metrics.html) for stored fields, privacy, filtering, date, grouping, and coverage behavior.
 
 The `usage_reporting` block configures optional per-stage usage telemetry to an Elasticsearch endpoint. Reporting is disabled by default and never blocks pipeline success — failures are logged as warnings.
 
@@ -233,12 +164,7 @@ The `usage_reporting` block configures optional per-stage usage telemetry to an 
 | `index` | `cybervisor-usage` | Elasticsearch index/target for documents |
 | `user` | *(local username)* | Optional user identity sent in each usage document; when omitted, cybervisor uses the local system account name |
 
-When enabled, Cybervisor sends one best-effort Elasticsearch request per
-finalized stage attempt. The remote event is built from the same normalized
-record as local accounting, including identity, workspace, executor, harness,
-model, model effort, status, duration, and all available token fields. Failed
-and interrupted attempts are included. Remote and local failures remain
-independent and never fail a pipeline stage.
+When enabled, Cybervisor sends one best-effort Elasticsearch request per finalized stage attempt. The remote event is built from the same normalized record as local accounting, including identity, workspace, executor, harness, model, model effort, status, duration, and all available token fields. Failed and interrupted attempts are included. Remote and local failures remain independent and never fail a pipeline stage.
 
 ```yaml
 usage_reporting:
@@ -251,8 +177,7 @@ usage_reporting:
 
 ## Harness Configuration and Notes
 
-For harness-specific prerequisites, authentication, configuration, and
-permission enforcement, consult the corresponding guide:
+For harness-specific prerequisites, authentication, configuration, and permission enforcement, consult the corresponding guide:
 
 - **[Claude Code Harness Guide](/agents/claude.html)**
 - **[Cursor Harness Guide](/agents/cursor.html)**
@@ -262,18 +187,11 @@ permission enforcement, consult the corresponding guide:
 
 ### Antigravity Notes
 
-The `antigravity` adapter requires `agy` 1.1.8 or newer on `PATH` and a
-completed interactive login. `stage_overrides` model values pass through unchanged.
-Cybervisor always uses the process-local
-`--dangerously-skip-permissions` override, keeps stdin closed, and never edits
-the Antigravity settings file. Set
-`CYBERVISOR_ANTIGRAVITY_PRINT_TIMEOUT` to a positive number of seconds to
-override the one-hour default.
+The `antigravity` adapter requires `agy` 1.1.8 or newer on `PATH` and a completed interactive login. `stage_overrides` model values pass through unchanged. Cybervisor always uses the process-local `--dangerously-skip-permissions` override, keeps stdin closed, and never edits the Antigravity settings file. Set `CYBERVISOR_ANTIGRAVITY_PRINT_TIMEOUT` to a positive number of seconds to override the one-hour default.
 
 ### Cursor Credentials
 
-The Cursor adapter reads its API key only from `harnesses.cursor.api_key` in the
-active Cybervisor config:
+The Cursor adapter reads its API key only from `harnesses.cursor.api_key` in the active Cybervisor config:
 
 ```yaml
 harness: cursor
@@ -282,14 +200,9 @@ harnesses:
     api_key: your-cursor-api-key
 ```
 
-When `.cybervisor/config.yaml` exists in the workspace, it replaces the home
-config, so the Cursor key must be present there. Environment variables and
-Cursor CLI login state are not fallback credential sources.
+When `.cybervisor/config.yaml` exists in the workspace, it replaces the home config, so the Cursor key must be present there. Environment variables and Cursor CLI login state are not fallback credential sources.
 
-Changing the default harness with `cybervisor use <harness>` updates only
-`harness`. It preserves `model_effort`, `stage_overrides`, the `harnesses` map
-(including `harnesses.cursor.api_key`), verifier settings, server settings, and
-usage settings.
+Changing the default harness with `cybervisor use <harness>` updates only `harness`. It preserves `model_effort`, `stage_overrides`, the `harnesses` map (including `harnesses.cursor.api_key`), verifier settings, server settings, and usage settings.
 
 ## Scaffolding (`cybervisor init`)
 
@@ -309,9 +222,7 @@ When running `cybervisor run` or `cybervisor submit`, the task prompt is resolve
 
 1. **Positional argument** — `cybervisor run "Your task description"`
 2. **stdin** — `printf "Your task" | cybervisor run`
-3. **Config-driven promptless execution** — Command stages require no
-   objective. Harness-backed stages are also promptless when their configured `prompt`
-   does not reference `{objective}`.
+3. **Config-driven promptless execution** — Command stages require no objective. Harness-backed stages are also promptless when their configured `prompt` does not reference `{objective}`.
 4. **Error** — If no prompt is provided and any stage still requires `{objective}`, the command exits with an error listing the stages that need a prompt.
 
 If a positional prompt argument is present, stdin is ignored even when piped.
@@ -328,8 +239,7 @@ cybervisor run --end-before "Verify"             # Stop before this stage (updat
 ```
 
 ### Self-Contained Config Flow Example
-If all active harness-backed stages define a self-contained `prompt`, or the effective
-slice contains only commands, the positional prompt may be omitted:
+If all active harness-backed stages define a self-contained `prompt`, or the effective slice contains only commands, the positional prompt may be omitted:
 
 ```bash
 # Using stage templates (standalone)
@@ -352,17 +262,13 @@ cybervisor submit "ship the retry fix" --config self-contained.yaml --start-from
 
 ### `cybervisor doctor` (Readiness Checks)
 
-Validates `~/.cybervisor/config.yaml` connectivity and credentials. It also
-checks that the selected harness passes its preflight requirements, including
-SDK importability or CLI availability, platform compatibility, authentication,
-effort support, and verifier config where applicable.
+Validates `~/.cybervisor/config.yaml` connectivity and credentials. It also checks that the selected harness passes its preflight requirements, including SDK importability or CLI availability, platform compatibility, authentication, structural effort-channel support, and verifier config where applicable.
 
 - `Doctor: verifier ready` — Verifier credentials are valid.
-- `Doctor: harness '<name>' ready` — Selected harness adapter passes preflight checks.
+- `Doctor: harness '<name>' ready` — The adapter is structurally ready; a harness or provider can still reject model-specific settings at launch.
 - `Doctor: verifier blocked` — Local configuration error (e.g., missing API key).
 - `Doctor: verifier needs attention` — Remote rejection (e.g., 401 Unauthorized).
-- `Doctor: harness '<name>' blocked` — Harness preflight failed (for example,
-  missing runtime, unsupported effort, unsupported platform, or missing auth).
+- `Doctor: harness '<name>' blocked` — Harness preflight failed (for example, missing runtime, effort configured for an adapter without an effort channel, unsupported platform, or missing auth).
 
 ### `cybervisor validate` (Config Safety)
 Checks `cybervisor.yaml` for route safety and prompt synchronization.
@@ -372,8 +278,7 @@ Checks `cybervisor.yaml` for route safety and prompt synchronization.
 
 ### Global Harness and Per-Stage Runtime Overrides
 
-Runtime selection belongs in the active global config. Every field in a stage
-override is optional, and an empty override is valid.
+Runtime selection belongs in the active global config. Every field in a stage override is optional, and an empty override is valid.
 
 ```yaml
 harness: opencode
@@ -396,40 +301,42 @@ stage_overrides:
 
 Configuration constraints:
 
-- Override keys are case-sensitive stage names. A key must match the stage
-  name in `cybervisor.yaml` exactly to affect that stage.
-- Valid override fields are exactly `harness`, `model`, and `effort`; unknown
-  fields are rejected. A model must be a non-empty string.
-- Harness and effort names are normalized to lowercase. Override keys remain
-  case-sensitive, and model identifiers preserve their casing.
-- `stage_overrides: null` or an omitted mapping disables overrides. Use `{}`
-  for an intentionally empty stage entry; a null stage entry is invalid.
+- Override keys are case-sensitive stage names. A key must match the stage name in `cybervisor.yaml` exactly to affect that stage.
+- Valid override fields are exactly `harness`, `model`, and `effort`; unknown fields are rejected. A model must be a non-empty string.
+- Harness and effort names are normalized to lowercase. Override keys remain case-sensitive, and model identifiers preserve their casing.
+- `stage_overrides: null` or an omitted mapping disables overrides. Use `{}` for an intentionally empty stage entry; a null stage entry is invalid.
 
 Resolution happens independently for each harness-backed stage:
 
 1. Harness: `stage_overrides[stage].harness` then global `harness`.
 2. Model: `stage_overrides[stage].model` then the harness default.
-3. Effort: `stage_overrides[stage].effort`, global `model_effort`, then the
-   harness/model default.
+3. Effort: `stage_overrides[stage].effort`, global `model_effort`, then the harness/model default.
 
-Command stages do not resolve or record any of these settings. Omitting a model
-or effort sends nothing, preserving the harness default.
+Command stages do not resolve or record any of these settings. Omitting a model or effort sends nothing, preserving the harness default.
 
-| Harness | Supported effort values |
+| Harness | Acceptance and destination |
 | --- | --- |
-| Codex | `minimal`, `low`, `medium`, `high`, `xhigh` |
-| Claude | `low`, `medium`, `high`, `xhigh`, `max` |
-| OpenCode | `minimal`, `low`, `medium`, `high`, `xhigh` (provider dependent) |
-| Antigravity | `low`, `medium`, `high` |
-| Cursor | None |
-| Mock | All five values |
+| Codex | Any normalized value; sent to the SDK turn. |
+| Claude | Any normalized value; sent through SDK options. |
+| OpenCode | Any normalized value; written as provider or agent `reasoningEffort`. |
+| Antigravity | Any normalized value; sent through native `agy --effort`. |
+| Cursor | No effort channel; every explicit value is rejected before launch. |
+| Mock | Any normalized value; retained for propagation tests. |
 
-Effort values are opaque strings in global configuration. Each harness owns
-its supported set and rejects an unsupported explicit value when its stage is
-prepared. Cybervisor never silently drops it. Preflight checks the effective
-stage slice before the pipeline begins. For example, a global `model_effort`
-combined with a Cursor stage blocks the run unless that stage is outside the
-effective slice.
+Cybervisor trims and lowercases every non-empty effort string. It validates only whether the adapter has an effort channel, then forwards the value unchanged. The harness, selected model, or provider owns the vocabulary and is the final authority. Cybervisor never silently drops an explicit value. Preflight checks the effective stage slice, so a global `model_effort` combined with a Cursor stage blocks the run unless that stage is outside the slice.
+
+A deterministic first-attempt rejection from a harness is reported as `Harness configuration rejected`. It ends the stage without consuming the remaining retry budget. Transient transport, provider, and runtime failures continue through normal retry handling.
+
+```mermaid
+flowchart LR
+    A[Resolve and normalize effort] --> B{Adapter has effort channel?}
+    B -->|No| C[Block before launch]
+    B -->|Yes| D[Forward to harness or provider]
+    D --> E{Harness verdict}
+    E -->|Accepted| F[Run stage]
+    E -->|Deterministic rejection| G[Abort on first attempt]
+    E -->|Transient failure| H[Use retry policy]
+```
 
 After validation, stderr reports the stable settings for the attempt:
 
@@ -452,24 +359,13 @@ flowchart LR
     G --> H
 ```
 
-Edits made during an attempt apply at the next attempt, stage, retry, or routed
-visit. The before and after phases within one attempt use the same captured
-effective hook pair. Changing only hooks does not reset retry continuation;
-changing the resolved harness, model, or effort does.
+Edits made during an attempt apply at the next attempt, stage, retry, or routed visit. The before and after phases within one attempt use the same captured effective hook pair. Changing only hooks does not reset retry continuation; changing the resolved harness, model, or effort does.
 
 #### Legacy migration
 
-For one deprecation window, Cybervisor reads these legacy keys and warns once
-per load: `agent_tool` or `agent` becomes `harness`; `stage_agents` becomes the
-per-stage `harness` field; and top-level `stage_models` becomes the per-stage
-`model` field. The older nested `llm.stage_models` key remains ignored; move
-those values into `stage_overrides`.
+For one deprecation window, Cybervisor reads these legacy keys and warns once per load: `agent_tool` or `agent` becomes `harness`; `stage_agents` becomes the per-stage `harness` field; and top-level `stage_models` becomes the per-stage `model` field. The older nested `llm.stage_models` key remains ignored; move those values into `stage_overrides`.
 
-`cybervisor use` rewrites runtime settings with canonical keys only. Different
-global legacy and canonical values are rejected. Defining a per-stage harness
-or model in both a legacy mapping and `stage_overrides` is also rejected, even
-when the values match. This normalization layer is planned for removal in the
-next breaking release.
+`cybervisor use` rewrites runtime settings with canonical keys only. Different global legacy and canonical values are rejected. Defining a per-stage harness or model in both a legacy mapping and `stage_overrides` is also rejected, even when the values match. This normalization layer is planned for removal in the next breaking release.
 
 ### Self-Refining Review Loop Example
 This pattern enables autonomous correction loops without a separate fix stage.
@@ -528,11 +424,8 @@ stages:
 
 **Behavior:**
 - A stage with `backup_artifacts: []` or without the field performs no backup.
-- Paths must be relative children of the task workspace and must not contain
-  `..`.
-- Paths resolve against the submitting task's workspace in both standalone
-  and daemon mode. Sources or backup destinations that escape through
-  symbolic links are skipped.
+- Paths must be relative children of the task workspace and must not contain `..`.
+- Paths resolve against the submitting task's workspace in both standalone and daemon mode. Sources or backup destinations that escape through symbolic links are skipped.
 - Each successful stage completion creates a new timestamped backup directory (format: `YYYY-MM-DDTHH-MM-SS`, UTC). Previous backups are preserved — no overwrite.
 - `.cybervisor/backups/` is never wiped by the pipeline's artifact reset. `.cybervisor/artifacts/` cleanup is skipped when files are present, preserving pre-written or seeded artifacts across pipeline restarts.
 - Backup occurs only after successful stage completion — failures or retries do not trigger a backup.
@@ -541,26 +434,15 @@ See the full reference in [Pipeline Authoring Guide](pipeline-authoring.md#backu
 
 ### Stage Field: `keep_artifacts`
 
-Declare `keep_artifacts: [list, of, paths]` on any stage to block it if the
-named artifacts are missing during post-run evaluation. Cybervisor checks
-`Path.exists()` before allowing the stage to complete. Missing files produce
-a `block` decision with a remediation message directing the agent to recreate
-them.
+Declare `keep_artifacts: [list, of, paths]` on any stage to block it if the named artifacts are missing during post-run evaluation. Cybervisor checks `Path.exists()` before allowing the stage to complete. Missing files produce a `block` decision with a remediation message directing the agent to recreate them.
 
 See the full reference in [Pipeline Authoring Guide](pipeline-authoring.md#keep_artifacts) for path rules, deduplication, daemon-mode behavior, and failure-before-teardown isolation.
 
 ### Stage Field: `cleanup`
 
-Declare `cleanup: [list, of, paths]` on any stage to sweep files at the
-declared paths before the lifecycle before hook and stage executor. For
-directories, all contents are removed recursively while preserving the
-directory itself; regular files and symlinks are removed directly. A deletion
-failure fails the attempt and skips both lifecycle hooks and the executor.
-Use `cleanup` on stages that produce their own artifacts and need a clean
-slate. Avoid it on stages that depend on upstream artifacts.
+Declare `cleanup: [list, of, paths]` on any stage to sweep files at the declared paths before the lifecycle before hook and stage executor. For directories, all contents are removed recursively while preserving the directory itself; regular files and symlinks are removed directly. A deletion failure fails the attempt and skips both lifecycle hooks and the executor. Use `cleanup` on stages that produce their own artifacts and need a clean slate. Avoid it on stages that depend on upstream artifacts.
 
-Cleanup paths must be relative children of the workspace root. The workspace
-root itself (`.`), absolute paths, and paths containing `..` are rejected.
+Cleanup paths must be relative children of the workspace root. The workspace root itself (`.`), absolute paths, and paths containing `..` are rejected.
 
 **Example:**
 ```yaml
@@ -671,17 +553,11 @@ stages:
 ```
 
 **Behavior:**
-- When a stage has `read_only_paths` set, Claude, Cursor, Codex, and
-  Antigravity share one Git-backed guard. OpenCode continues to use native
-  permission deny rules in `OPENCODE_CONFIG_CONTENT`.
-- The Git-backed guard protects tracked and untracked files visible to Git.
-  Git-ignored paths are intentionally outside its scope.
-- A pattern with an ignored or uncovered static prefix produces a warning that
-  names the pattern and is skipped. Other covered patterns remain active.
-- Detected changes fail the attempt and remain in the working tree; Cybervisor
-  never restores or deletes them.
-- Independent nested repositories are resolved from the protected prefix, even
-  when an outer repository ignores them.
+- When a stage has `read_only_paths` set, Claude, Cursor, Codex, and Antigravity share one Git-backed guard. OpenCode continues to use native permission deny rules in `OPENCODE_CONFIG_CONTENT`.
+- The Git-backed guard protects tracked and untracked files visible to Git. Git-ignored paths are intentionally outside its scope.
+- A pattern with an ignored or uncovered static prefix produces a warning that names the pattern and is skipped. Other covered patterns remain active.
+- Detected changes fail the attempt and remain in the working tree; Cybervisor never restores or deletes them.
+- Independent nested repositories are resolved from the protected prefix, even when an outer repository ignores them.
 - When `read_only_paths` is empty or absent for a stage, no adapter-level read-only enforcement is active for that stage.
 - Adapter-level read-only enforcement is per-stage: stages with `read_only_paths` get write protection; stages without it run without enforcement.
 - When `read_only_paths` is non-empty, the pipeline runner also appends a read-only-paths section to the stage prompt listing each pattern and instructing the agent not to modify matching files. This reduces wasted tool-call budget on writes that would be blocked anyway. The section appears after the injection appendix (if any) and before contract guidance.
@@ -691,9 +567,7 @@ stages:
 - Each entry must be a non-empty, relative path string. Patterns use path-segment glob matching: `*` matches within one path segment, while `**` matches zero or more path segments. For example, `src/*.py` matches `src/foo.py`, `src/**/*.py` also matches `src/sub/bar.py`, and `src/**` matches everything under `src/`.
 - Absolute paths and paths containing `..` are rejected at config validation time.
 - Patterns are resolved relative to the workspace root.
-- If a `read_only_paths` pattern matches a `keep_artifacts` entry for the same
-  stage, a warning is emitted because enforcement may block writes to files
-  the stage expects to be present.
+- If a `read_only_paths` pattern matches a `keep_artifacts` entry for the same stage, a warning is emitted because enforcement may block writes to files the stage expects to be present.
 
 **Migration:** The top-level `read_only_paths` key and the previous `protected_paths` key are no longer accepted. If either is present, a validation error is raised with a migration hint. Move `read_only_paths` into individual stage definitions in your `cybervisor.yaml`.
 

@@ -8,10 +8,7 @@ title: Claude Code Harness Guide
 
 The Claude Code adapter enables `cybervisor` to use Claude as a pipeline agent via the `claude-agent-sdk` Python package. It runs in-process (no CLI subprocess) and uses SDK-native options for autonomous, non-interactive operation.
 
-An effort resolved from global `model_effort` or
-`stage_overrides.<stage>.effort` is passed to the SDK. Claude supports `low`,
-`medium`, `high`, `xhigh`, and `max`; `minimal` is rejected before launch.
-Omitting effort preserves the SDK default.
+An effort resolved from global `model_effort` or `stage_overrides.<stage>.effort` is passed to the SDK after normalization. Cybervisor does not impose an effort vocabulary; the SDK and selected model decide validity. A synchronous SDK option rejection ends the stage on its first attempt. Later SDK iteration and transport failures remain retryable and surface their SDK diagnosis separately from the preserved transcript. Omitting effort preserves the SDK default.
 
 ---
 
@@ -30,22 +27,15 @@ Omitting effort preserves the SDK default.
 
 ### Settings and evaluation
 
-The Claude adapter does not patch `.claude/settings.json` or install Claude
-Code callbacks:
-- Contract enforcement and verifier decisions remain Cybervisor-owned. Cybervisor
-  evaluates each completed SDK turn while the session is alive and sends a
-  focused continuation prompt when the result is blocked.
+The Claude adapter does not patch `.claude/settings.json` or install Claude Code callbacks:
+- Contract enforcement and verifier decisions remain Cybervisor-owned. Cybervisor evaluates each completed SDK turn while the session is alive and sends a focused continuation prompt when the result is blocked.
 - Read-only path enforcement uses the shared Git-backed guard to detect protected Git-visible changes without restoring them.
-- The final reply and contract result are returned after the SDK session exits;
-  blocking decisions are evaluated between turns while the session remains alive.
+- The final reply and contract result are returned after the SDK session exits; blocking decisions are evaluated between turns while the session remains alive.
 
 ### Permission Enforcement
 - **Disallowed Tools:** Tools that could block automation (e.g., `AskUserQuestion`, `EnterPlanMode`) are denied through SDK `disallowed_tools` options.
-- **Read-Only Paths:** Protected file writes are detected and reported without
-  restoring them. The stage captures one Git-backed status baseline before its
-  attempts begin, then fails if a protected path changes during any attempt.
-- **Logging:** Evaluation events are logged to
-  `.cybervisor/logs/evaluation-events.jsonl`.
+- **Read-Only Paths:** Protected file writes are detected and reported without restoring them. The stage captures one Git-backed status baseline before its attempts begin, then fails if a protected path changes during any attempt.
+- **Logging:** Evaluation events are logged to `.cybervisor/logs/evaluation-events.jsonl`.
 
 ---
 
@@ -71,9 +61,6 @@ The Claude adapter runs in-process via a background thread. When you run `cyberv
 
 ### Continuation and sessions
 
-- A contract or verifier block can trigger another turn in the same Claude
-  session instead of restarting the stage.
+- A contract or verifier block can trigger another turn in the same Claude session instead of restarting the stage.
 - Cybervisor allows up to 25 continuation turns for one stage attempt.
-- If a stage retry is needed later, Claude can reuse the captured session when
-  retry continuation is supported. The session identifier is also recorded in
-  `.cybervisor/logs/evaluation-events.jsonl` when evaluation runs.
+- If a stage retry is needed later, Claude can reuse the captured session when retry continuation is supported. The session identifier is also recorded in `.cybervisor/logs/evaluation-events.jsonl` when evaluation runs.

@@ -6,9 +6,7 @@ title: WebSocket Protocol — Cybervisor Daemon Mode
 
 > **Audience: Developers** — Systems integrators building WebSocket clients against the daemon.
 
-**Protocol Version:** 1.0 (pong `tasks` extension: v2 — includes `cwd`, `end_stage`, `end_before` per-task fields)
-**Transport:** WebSocket (text frames carrying JSON)
-**Default Endpoint:** `ws://127.0.0.1:8765`
+**Protocol Version:** 1.0 (pong `tasks` extension: v2 — includes `cwd`, `end_stage`, `end_before` per-task fields) **Transport:** WebSocket (text frames carrying JSON) **Default Endpoint:** `ws://127.0.0.1:8765`
 
 All messages are JSON objects. The server never sends messages to a client that has no active task. Each message carries a `type` field that determines its structure.
 
@@ -57,9 +55,7 @@ Every message includes:
 
 Malformed `run` messages are rejected with an `error` event using code `invalid_message`; the daemon does not synthesize missing required fields. Config selection is limited to files inside the current workspace so the daemon stays aligned with the documented local workflow. Stage names in `start_stage`, `end_stage`, and `end_before` are validated against the stages defined in the resolved config; unknown names result in `invalid_message`. Supplying both `end_stage` and `end_before` results in `mutually_exclusive_end_stage`.
 
-**Server response:** `run_accepted` when the task is admitted. If another task
-is executing, the accepted task waits in the daemon's serialized execution
-queue. Invalid messages and duplicate task IDs receive an `error`.
+**Server response:** `run_accepted` when the task is admitted. If another task is executing, the accepted task waits in the daemon's serialized execution queue. Invalid messages and duplicate task IDs receive an `error`.
 
 ---
 
@@ -258,11 +254,7 @@ Client may send `ping` at any time. Server responds with `pong`.
 }
 ```
 
-`halted_at_end_stage` is optional. It is present only when an operator's
-`cybervisor end --after/--before` command halted a batch task. The value is the
-operator's requested stop target. Submit-time `--end-after` and `--end-before`
-boundaries do not populate this field because they are normal per-plan
-completion boundaries.
+`halted_at_end_stage` is optional. It is present only when an operator's `cybervisor end --after/--before` command halted a batch task. The value is the operator's requested stop target. Submit-time `--end-after` and `--end-before` boundaries do not populate this field because they are normal per-plan completion boundaries.
 
 ### `event_replay` — Historical Events on Resume
 

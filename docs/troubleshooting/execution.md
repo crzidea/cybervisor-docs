@@ -40,11 +40,7 @@ cybervisor status
 
 ### Legacy hook files remain in the workspace
 
-Current Cybervisor runs do not create `.cybervisor/hooks/`,
-`.cybervisor/hook-events.sock`, `hook_config.json`, or settings snapshots. An
-older run may have left these files behind. Confirm that no older Cybervisor
-process is using them, then remove the stale files manually. The current
-evaluation log is `.cybervisor/logs/evaluation-events.jsonl`.
+Current Cybervisor runs do not create `.cybervisor/hooks/`, `.cybervisor/hook-events.sock`, `hook_config.json`, or settings snapshots. An older run may have left these files behind. Confirm that no older Cybervisor process is using them, then remove the stale files manually. The current evaluation log is `.cybervisor/logs/evaluation-events.jsonl`.
 
 ---
 
@@ -53,12 +49,9 @@ evaluation log is `.cybervisor/logs/evaluation-events.jsonl`.
 ### Agent exits immediately with no output
 
 - Confirm OpenCode is installed with `opencode --version`; for Codex, verify `python -c "import openai_codex"`.
-- Claude and Cursor use bundled Python SDKs. Antigravity requires `agy` 1.1.8
-  or newer on `PATH` and a completed interactive login. Run
-  `cybervisor doctor` to verify the selected adapter.
+- Claude and Cursor use bundled Python SDKs. Antigravity requires `agy` 1.1.8 or newer on `PATH` and a completed interactive login. Run `cybervisor doctor` to verify the selected adapter.
 - Check preflight output at the top of the run for missing prerequisites.
-- For harness-specific prerequisites, authentication, or session timeouts, see
-  the [supported harness guides](../troubleshooting/index.md#agent-specific-guides-and-troubleshooting).
+- For harness-specific prerequisites, authentication, or session timeouts, see the [supported harness guides](../troubleshooting/index.md#agent-specific-guides-and-troubleshooting).
 
 ### `tool call:` lines show only a title
 Live stderr builds `tool call:` lines from each agent's structured events. 
@@ -66,10 +59,7 @@ Live stderr builds `tool call:` lines from each agent's structured events.
 - For protocol-based agents, summaries appear only when the tool payload includes usable argument fields.
 - For serve-based agents like OpenCode, summaries appear from SSE event payloads. (OpenCode deduplicates bare tool-call start events and suppresses lifecycle/metadata events from stderr, though they still appear in the JSONL stage log).
 - For Antigravity, summaries come from recognized `stream-json` step updates.
-- If summaries disappeared after upgrading an agent, compare the live line with
-  the raw entry in `.cybervisor/logs/stages/`. Antigravity records CLI NDJSON;
-  OpenCode records HTTP/SSE events. Maintainers should update the owning
-  translation layer, not shared rendering.
+- If summaries disappeared after upgrading an agent, compare the live line with the raw entry in `.cybervisor/logs/stages/`. Antigravity records CLI NDJSON; OpenCode records HTTP/SSE events. Maintainers should update the owning translation layer, not shared rendering.
 
 ---
 
@@ -87,22 +77,16 @@ If the agent reports "Path X is protected by the pipeline (read_only_paths)", th
 
 - Confirm `read_only_paths` is set on the relevant stage in `cybervisor.yaml` (it is a per-stage field, not a top-level field or a `~/.cybervisor/config.yaml` field).
 - Empty or absent `read_only_paths` for a stage means no write protection is installed for that stage. Adapter-level read-only enforcement is only active when the list is non-empty.
-- Post-run verifier evaluation is independent of `read_only_paths` and does
-  not gate tool calls.
+- Post-run verifier evaluation is independent of `read_only_paths` and does not gate tool calls.
 - **Enforcement scope:** 
   - Claude uses Git-backed change detection that reports protected Git-visible changes without restoring them; the stage fails if a protected path was modified.
   - Cursor uses Git-backed detect-only enforcement after each SDK turn. A protected file can be changed briefly before detection, so use a read-only mount when pre-write prevention is required.
   - OpenCode generates native permission deny rules in `OPENCODE_CONFIG_CONTENT`.
-  - Codex SDK stages detect protected Git-visible changes after each turn,
-    leave them in place, and fail the attempt.
-  - Antigravity uses Git-backed change detection after its unrestricted,
-    process-local CLI permission override.
+  - Codex SDK stages detect protected Git-visible changes after each turn, leave them in place, and fail the attempt.
+  - Antigravity uses Git-backed change detection after its unrestricted, process-local CLI permission override.
   - External processes or direct filesystem writes outside the agent session are not blocked.
-- Git-ignored files are intentionally outside the non-OpenCode guard. If a
-  warning names an ignored or uncovered pattern, protect a Git-visible prefix
-  or use a filesystem-level read-only boundary.
-- Check `.cybervisor/logs/evaluation-events.jsonl` for post-run evaluation
-  events. Cursor has no proactive enforcement mode.
+- Git-ignored files are intentionally outside the non-OpenCode guard. If a warning names an ignored or uncovered pattern, protect a Git-visible prefix or use a filesystem-level read-only boundary.
+- Check `.cybervisor/logs/evaluation-events.jsonl` for post-run evaluation events. Cursor has no proactive enforcement mode.
 
 ---
 
@@ -120,13 +104,18 @@ This warning means the pipeline tried to continue a prior agent session on retry
 
 In all cases, the retry still proceeds normally — the stage gets a fresh agent session with the original prompt. Retry counts and `max_retries` are unaffected.
 
+### Harness configuration is rejected on the first attempt
+
+If the log reports `Harness configuration rejected by <harness>`, the selected harness or provider rejected a deterministic setting such as the model or effort value. Cybervisor reports the native diagnosis, records one failed attempt, and does not retry the same configuration. It also does not run the stage's `after_stage` hook or persist resumable session metadata for that failed stage.
+
+- For an explicit effort, check the selected model/provider documentation and correct `model_effort` or `stage_overrides.<stage>.effort`.
+- For Cursor, remove the explicit effort; Cursor has no effort channel and is blocked before launch with `does not support model effort selection`.
+- For OpenCode, inspect the serve diagnostic tail in stderr and the stage JSONL log under `.cybervisor/logs/stages/`.
+- Run `cybervisor doctor` after correcting the configuration. Doctor checks structural readiness, while the harness or provider remains the authority on model-specific settings.
+
 ### Retry appears to restart from the beginning
 
-If the adapter does not support retry continuation, each retry starts a new
-agent session with the original prompt. Claude, OpenCode, and Antigravity can
-reuse their captured sessions when available. To reduce duplicated work on
-retry, consider reducing `max_retries` or restructuring the stage into smaller
-units.
+If the adapter does not support retry continuation, each retry starts a new agent session with the original prompt. Claude, OpenCode, and Antigravity can reuse their captured sessions when available. To reduce duplicated work on retry, consider reducing `max_retries` or restructuring the stage into smaller units.
 
 ---
 
@@ -175,9 +164,7 @@ This message means cybervisor found persisted session metadata but it did not ma
 
 - **No persisted metadata** (`no_session_metadata`) — There is no `.cybervisor/latest-session.json` in the workspace (e.g., the previous run never captured a session id, or the file was deleted). The stage starts as a fresh attempt.
 - **Stage name mismatch** (`stage_mismatch`) — You resumed at a different stage than the one that captured the session id.
-- **Adapter name mismatch** (`adapter_mismatch`) — The current adapter differs
-  from the one that captured the session id (for example, you changed
-  `harness` or the stage has a `stage_overrides` harness override).
+- **Adapter name mismatch** (`adapter_mismatch`) — The current adapter differs from the one that captured the session id (for example, you changed `harness` or the stage has a `stage_overrides` harness override).
 - **Workspace root mismatch** (`workspace_mismatch`) — You are running from a different working directory than the original run.
 - **Empty session id** (`empty_session_id`) — The persisted metadata is structurally valid but contains a blank `session_id`. Treat it as no metadata available and start fresh.
 - **Persisted session not reusable** (`persisted_continuation_unavailable`) — The metadata matched, but the live serve session (for example, `opencode serve`) is not reachable, so a fresh session is started. This is the typical fallback when you run `--resume` after a previous OpenCode session has fully exited.
