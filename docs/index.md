@@ -35,7 +35,7 @@ For the repository layout and package structure, see [Development](/development.
 | [Getting Started](/getting-started.html) | Step-by-step tutorial from install to first pipeline run |
 | [Configuration Reference](/configuration.html) | `cybervisor.yaml`, `~/.cybervisor/config.yaml`, stage fields, CLI commands |
 | [Pipeline Authoring Guide](/pipeline-authoring.html) | Designing stages, contracts, routing, and stage prompts |
-| [Runtime and Daemon — User Guide](/runtime-user.html) | Daemon commands, client interaction, live stderr output, skill disable/restore, signals |
+| [Runtime and Daemon — User Guide](/runtime-user.html) | Daemon commands, client interaction, live stderr output, native session discovery, skill disable/restore, signals |
 | [Updating](/updating.html) | Install, upgrade, and migration workflows |
 | [Shell Completions](/completions.html) | Bash tab completion setup and comparison |
 | [Local Usage Metrics](/usage-metrics.html) | Private task history, filters, grouping, and token coverage |
@@ -52,6 +52,7 @@ For the repository layout and package structure, see [Development](/development.
 | Document | What it covers |
 |----------|---------------|
 | [Runtime and Daemon — Developer Reference](/runtime-internals.html) | Pipeline lifecycle, adapter compatibility, generated artifacts |
+| [Native Session Verification Report](/native-session-verification.html) | Metadata-only evidence for native session persistence and discovery boundaries |
 | [Testing Reference](/testing-dev.html) | Unit test suite layout, mock API server, Docker image building |
 | [Updating — Developer Reference](/updating-dev.html) | Repo update and release publishing |
 | [Development](/development.html) | Repository layout, local setup, tests, and release workflow |

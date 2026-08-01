@@ -254,3 +254,24 @@ When the agent subprocess spawns long-running child processes (such as `npm run 
 Cleanup is best-effort: if a process exits between discovery and termination, no error is raised. All cleanup actions are logged to both stderr and the JSON log file under `.cybervisor/logs/`.
 
 **Known limitation**: A descendant process that both leaves the agent's process group (via `setpgid` or `setsid`) and is reparented to init (because its parent exited) may not be discovered by the pipeline-level sweep. This is rare and is an acceptable edge case under best-effort cleanup.
+
+## Native Harness Session History
+
+Cybervisor's `.cybervisor/logs/` directory is a per-run diagnostic stream, not a session archive. Cybervisor clears it before every standalone run, daemon startup, and daemon task. Harness-owned conversations instead remain in each harness's normal native store, and Cybervisor does not copy transcript content between those stores.
+
+`.cybervisor/latest-session.json` contains only the latest captured harness session metadata, including the session identifier, stage, adapter, workspace, and optional task, run, timestamp, model, and effort fields. Cybervisor uses it as the pointer for `--start-from --resume` when the selected adapter supports persisted continuation; it is not a transcript or a complete history index.
+
+Native discovery uses the harness's own CLI, not Cybervisor. SDK-backed adapters can run without that CLI, but listing or direct access requires the corresponding CLI and its own authentication; run it with the same harness environment and workspace as the stage, such as `CODEX_HOME` or `CLAUDE_CONFIG_DIR`.
+
+| Harness | Native discovery | Direct access | Boundary |
+|---|---|---|---|
+| Claude | Run `claude --resume` from the stage workspace and use Ctrl+A for all projects | `claude --resume <session-id>` | Claude Code 2.1.220 accepted SDK transcripts by exact ID, but a live SDK session did not render in either isolated-config picker view; use direct access when the picker omits it |
+| Codex | `codex resume --all --include-non-interactive` | `codex resume <session-id>` | Use the explicit non-interactive listing for reliable discovery. The verified Codex 0.144.1 CLI also showed the SDK row in the plain picker, but picker filtering can vary by CLI version; the native row may present a title rather than the raw identifier, so confirm deterministic access by direct ID |
+| OpenCode | `opencode session list --format json` | `opencode --session <session-id>` or `opencode export <session-id>` | The adapter changes only process-local configuration and leaves the normal OpenCode data store in place |
+| Cursor | `cursor-agent ls` | `cursor-agent --resume <session-id>` | An authenticated smoke confirmed native direct resume, while the CLI listing omitted the SDK-created agent; Cybervisor's own `--resume` still starts fresh |
+| Antigravity | No separate conversation-list command is available in the verified CLI | `agy --conversation <session-id>` | Recognition by exact conversation ID is the supported discovery boundary |
+| Mock | None | None | Mock sessions are not native harness sessions |
+
+Claude's picker is project-scoped by default and may additionally reflect native worktree or branch presentation rules. Always run it from the exact stage workspace first, then use Ctrl+A. Direct resume by the identifier is the deterministic fallback and does not require Cybervisor to write `history.jsonl`.
+
+When checking a session without continuing it, use the picker's displayed quit control and exit a directly resumed conversation before sending a prompt. In the verified Codex picker, Ctrl+C quits while Esc starts a new conversation. If you use `opencode export` only to confirm addressability, redirect its output so transcript content is not displayed or recorded.

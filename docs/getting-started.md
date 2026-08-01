@@ -236,4 +236,5 @@ cybervisor run "Create a 360 feedback system" --end-after "Review Code"
 - Learn the full config surface: [Configuration Reference](/configuration.html)
 - Design custom pipelines with contracts: [Pipeline Authoring Guide](/pipeline-authoring.html)
 - Run in daemon mode for headless/remote execution: [Runtime and Daemon](/runtime-user.html) and [WebSocket Protocol](/websocket-protocol.html)
+- Inspect or resume harness conversations: [Native Harness Session History](runtime-user.md#native-harness-session-history)
 - Troubleshoot common issues: [Troubleshooting](/troubleshooting/index.html)

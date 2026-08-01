@@ -110,3 +110,9 @@ uv run ruff check src/
 uv run mypy --strict src/
 uv run pytest
 ```
+
+## Native session declaration
+
+Every registered adapter must set `AdapterDescriptor.native_session_behavior` to a frozen `NativeSessionBehavior` with explicit values for `records_runtime`, `supports_direct_resume`, `supports_native_discovery`, and `discovery_requires_non_interactive_flag`. The four values are independent descriptive statements and must never be derived from one another.
+
+This metadata is not a capability gate and never proves visibility. Add a native-surface integration test that captures the exact returned identifier, finds it in the harness-owned store, exercises the supported list, picker, export, or direct-resume surface, and skips cleanly when the CLI or credential is unavailable. Keep transcript content and credentials out of output. A production adapter without the declaration fails registry validation.

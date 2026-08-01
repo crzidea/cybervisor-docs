@@ -128,3 +128,7 @@ The `<fallback_reason>` is one of:
 ## Explicit `--resume` After a Previous Run
 
 OpenCode and Antigravity both support resuming persisted sessions across separate invocations, so the explicit `--resume` flow (combined with `--start-from`) can apply to either adapter. When the persisted session id from `.cybervisor/latest-session.json` is matched but the live continuation context is not reusable, the stage starts fresh and logs a `SessionResumeFallback` entry with a reason such as `persisted_continuation_unavailable` (OpenCode) or `conversation_unavailable` (Antigravity). The original persisted metadata is preserved so a later `--resume` attempt still points at the original session id. See [Resumed Stage Continuation (User Guide)](../runtime-user.md#resumed-stage-continuation) for the full flow, match checks, and `latest-session.json` write semantics.
+
+## Native session discovery
+
+Cybervisor uses stage-local OpenCode configuration without changing the normal OpenCode data store. Locate the exact `ses_*` identifier with `opencode session list --format json`. Validate addressability without printing transcript content by running `opencode export <session-id>` with output redirected, or continue it with `opencode --session <session-id>`.

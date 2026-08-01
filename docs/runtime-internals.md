@@ -217,3 +217,37 @@ When `cybervisor run` is invoked (both bare-prompt and explicit `run` subcommand
   - **Runtime Update**: Can be updated mid-run via daemon message. The runner checks `EndStageRef` dynamically at each stage transition. (Daemon mode only; direct `run` mode is fixed at invocation).
 
 All client commands accept `--host` and `--port` to override the daemon address. Defaults come from `~/.cybervisor/config.yaml` (`server.host`, `server.port`). The connection timeout is 5 seconds; commands exit `1` with a "daemon not reachable" message on timeout or connection failure.
+
+## Native Session Persistence and Indexing
+
+Adapters let the harness persist its own transcript and index, then expose only the native identifier to the pipeline metadata writer. `NativeSessionBehavior` on `AdapterDescriptor` documents expected behavior but is deliberately separate from `HarnessCapabilities`; runtime code must never branch on it or accept it as integration evidence.
+
+```mermaid
+flowchart LR
+    R[HarnessLaunchRequest] --> A[Adapter native SDK or CLI]
+    A --> S[Harness-owned session store]
+    A --> I[Native session identifier]
+    I --> M[.cybervisor/latest-session.json]
+    S --> D[Native list or picker]
+    S --> X[Direct resume by identifier]
+    M --> C[Cybervisor --start-from --resume]
+```
+
+Codex now receives a copy of the ambient environment with `CODEX_HOME` untouched. The SDK gets model, working directory, sandbox, approval mode, effort, and a process-local trusted-project override through SDK configuration APIs. The override prevents Codex from adding the stage workspace to persistent `config.toml`; live write-audit evidence confirmed `auth.json` and `config.toml` remained byte-identical while session JSONL, state databases, caches, and indexes changed under the configured Codex home. No authentication file, configuration file, database, session directory, or transcript is copied by production code.
+
+| Codex write-audit path | Classification |
+|---|---|
+| `sessions/**/rollout-*.jsonl`, `shell_snapshots/*.sh` | Session runtime, expected |
+| `state_*.sqlite*`, `logs_*.sqlite*`, `goals_*.sqlite*`, `memories_*.sqlite*` | Native state and indexes, expected |
+| `models_cache.json`, `cache/`, `plugins/cache/`, `skills/.system/` | Native runtime caches and indexes, expected |
+| `installation_id`, `.personality_migration` | Native runtime metadata, expected |
+| `auth.json` | Persistent authentication, byte-identical |
+| `config.toml` | Initial audit blocker: the SDK added a trusted-project entry; the process-local `projects` override removed that write, and the final audit was byte-identical |
+
+OpenCode continues to isolate `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT` only; it preserves `XDG_DATA_HOME`, `XDG_STATE_HOME`, and the native database location. Antigravity inherits the ambient process environment. Cursor leaves storage ownership to the synchronous SDK and bundled bridge.
+
+### Claude spike outcome
+
+The selected outcome is R4: documented native-picker limitation with exact-ID direct resume. Probe A confirmed that the SDK's filesystem session API parses an `entrypoint: sdk-py` transcript without `history.jsonl`; the isolated Claude Code 2.1.220 picker did not render it. Probe B confirmed neither the own-project nor all-project isolated picker repaired visibility. Probe C confirmed changing `gitBranch` did not repair visibility. Probe D confirmed the SDK entrypoint environment reaches `ClaudeAgentOptions`, while the SDK already defaults its child entrypoint to `sdk-py`. Probe E confirmed an SDK `session_store` is a separate application store and is not a native CLI index. Probe F ran a live Cybervisor `ClaudeAdapter` stage in an isolated `CLAUDE_CONFIG_DIR`: the exact transcript survived and `claude --resume <session-id>` opened it, but both picker views omitted it. Cybervisor therefore adds no registrar and never writes `history.jsonl`; user documentation names direct resume as the verified boundary.
+
+Native-surface tests record identifiers, membership, and boolean visibility outcomes only. They never return picker screens, prompts, responses, authentication values, or transcript bodies in diagnostics. See the [Native Session Verification Report](/native-session-verification.html) for the metadata-only evidence from the verified harness smokes.

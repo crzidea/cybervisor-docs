@@ -131,3 +131,7 @@ Check `.cybervisor/logs/stages/` for the structured SDK events. The translator h
 Cancellation is cooperative. Cybervisor signals the SDK worker, requests SDK run cancellation when available, and waits up to five seconds for the worker to finish. An SDK operation already in progress may take a short time to return. Interrupted runs exit with status code `130` and do not advance to the next stage.
 
 The bundled bridge subprocess may briefly outlive the SDK worker because the SDK does not expose its PID for Cybervisor cleanup. Terminate only PIDs you can verify belong to your run.
+
+## Native session discovery limitation
+
+Cybervisor records the identifier returned by the Cursor SDK and leaves the transcript under Cursor's normal project `agent-transcripts` storage. An authenticated smoke stage confirmed `cursor-agent --resume <session-id>` accepts that SDK identifier, but `cursor-agent ls` omitted the same session. Cybervisor therefore promises direct native resume but not native list discovery for Cursor. Follow-up scope is to compare SDK-created agent metadata and indexing with the CLI listing and add a version-pinned listing regression test before promising list discovery; until that is resolved, use the exact identifier from `.cybervisor/latest-session.json` rather than searching the list.

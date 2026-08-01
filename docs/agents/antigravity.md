@@ -88,3 +88,7 @@ Run `agy` interactively and complete sign-in. Headless Cybervisor stages close s
 ### Non-`SUCCESS` result
 
 `ERROR`, `CANCELED`, `INTERRUPTED`, `INVALID`, `WAITING`, and `RUNNING` are failures even when `agy` exits with code 0. Review the CLI error and diagnostic tail shown by Cybervisor. A missing terminal result also fails the stage.
+
+## Native conversation discovery
+
+Antigravity stores conversations in its normal CLI store because Cybervisor inherits the ambient process environment and does not redirect the database. The verified CLI has no separate conversation-list command. Use the identifier from `.cybervisor/latest-session.json` with `agy --conversation <session-id>`; recognition of that exact identifier is the native discovery boundary. Exit without sending a prompt when inspecting only addressability.

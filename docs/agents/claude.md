@@ -64,3 +64,7 @@ The Claude adapter runs in-process via a background thread. When you run `cyberv
 - A contract or verifier block can trigger another turn in the same Claude session instead of restarting the stage.
 - Cybervisor allows up to 25 continuation turns for one stage attempt.
 - If a stage retry is needed later, Claude can reuse the captured session when retry continuation is supported. The session identifier is also recorded in `.cybervisor/logs/evaluation-events.jsonl` when evaluation runs.
+
+## Native session discovery
+
+Claude SDK transcripts remain in Claude's normal project store and Cybervisor does not add entries to Claude's history index. Native inspection requires the `claude` CLI; Cybervisor itself does not require that executable because its stage adapter uses the SDK. Start with `claude --resume` in the exact stage workspace and use Ctrl+A to show all projects. In the verified Claude Code 2.1.220 environment, a live Cybervisor SDK session was omitted from both picker views even though the SDK session API found the transcript; `claude --resume <session-id>` opened that same session successfully. Treat direct resume using `.cybervisor/latest-session.json` as the verified boundary when the picker omits an SDK session; other Claude Code versions may differ. Project and worktree scoping can also hide native sessions, so picker absence alone does not mean the transcript was deleted.
