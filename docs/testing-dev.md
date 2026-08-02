@@ -109,7 +109,7 @@ For the usual local development loop, use the dev sandbox script:
 scripts/dev-sandbox.sh
 ```
 
-It reinstalls the host `cybervisor` CLI from the current checkout, builds `cybervisor:local`, replaces the matching sandbox container for the current directory, and runs the sandbox attached on port `8766`. Pass a different port as the first argument, for example `scripts/dev-sandbox.sh 9000`.
+It upgrades every locked dependency to the newest compatible release, reinstalls the host `cybervisor` CLI from the current checkout with upgraded dependencies, builds `cybervisor:local` from the refreshed lockfile, replaces the matching sandbox container for the current directory, and runs the sandbox attached on port `8766`. Review and commit the resulting `uv.lock` changes before publishing. Pass a different port as the first argument, for example `scripts/dev-sandbox.sh 9000`.
 
 To run a generated-project smoke test, prepare an isolated workspace first:
 ```bash
