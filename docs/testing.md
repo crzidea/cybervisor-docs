@@ -83,7 +83,7 @@ cybervisor sandbox --group-add 123 --group-add users
 | `--background` | `false` | Run container in background (detached) |
 | `--image` | `ghcr.io/crzidea/cybervisor:latest` | Docker image to use (pulled automatically on each run unless `--no-pull` is passed) |
 | `--no-pull` | `false` | Skip automatic image pull; use local image as-is |
-| `--name` | `cybervisor-sandbox-<hash>` | Container name (auto-generated from cwd hash if omitted) |
+| `--name` | `cvsb-<hash>` | Container name (auto-generated from cwd hash if omitted) |
 | `--mount MOUNT_SPEC` | None | Extra Docker volume mount; repeatable. Supports `HOST`, `HOST:CONTAINER`, and `HOST:CONTAINER:ro|rw` |
 | `--group-add GROUP` | None | Docker supplementary group to add inside the container; repeatable. Group names or numeric IDs are passed verbatim to Docker |
 | `--docker` | `false` | Mount the host Docker socket and add its supplementary group (Docker-in-Docker shorthand) |
