@@ -8,12 +8,12 @@ title: OpenCode Harness Guide
 
 The OpenCode adapter enables `cybervisor` to use the OpenCode CLI as a pipeline agent. Unlike standard stdio/JSON-RPC adapters, it communicates over loopback HTTP via `opencode serve`. Each pipeline stage starts an isolated serve instance on an allocated port, runs a session, and shuts the server down upon completion. On retry, the adapter reuses the existing serve process and session instead of starting a new one, sending a continuation prompt that tells the agent to address the failure without restarting completed work.
 
-Cybervisor accepts any normalized effort string and writes it unchanged as `reasoningEffort` in the generated runtime configuration. The provider and selected model decide which values are valid. Where the option is written depends on the resolved model:
+Cybervisor accepts any normalized effort string and sends it unchanged as the native OpenCode `variant` on every serve message, including verifier and retry continuations. This makes the selected effort part of OpenCode's session and message metadata and lets OpenCode translate built-in variants into provider-specific reasoning options. Cybervisor also writes the value as `reasoningEffort` in the generated runtime configuration as a compatibility fallback for custom or provider-specific values that do not resolve to a built-in variant. The provider and selected model decide which values are valid. Where the fallback option is written depends on the resolved model:
 
 1. **Provider-qualified model** (for example `openai/gpt-5`): the option goes under that provider's model options, so only the selected model is affected.
 2. **Bare model name or no model**: there is no provider to key on, so the option goes under every agent's options in the generated config.
 
-The option is never written at the top level of the config. The OpenCode config schema forbids unknown root keys, so a root-level `options` entry would make OpenCode reject the entire generated runtime configuration.
+The fallback option is never written at the top level of the config. The OpenCode config schema forbids unknown root keys, so a root-level `options` entry would make OpenCode reject the entire generated runtime configuration.
 
 Actual support remains provider dependent. A deterministic 4xx configuration rejection or configuration-evidenced serve startup failure ends the stage on its first attempt. Transient statuses such as 408, 409, 425, and 429 remain retryable. Serve startup output is continuously drained and its bounded tail is included in failure diagnostics.
 

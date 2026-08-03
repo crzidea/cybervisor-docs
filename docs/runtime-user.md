@@ -69,8 +69,7 @@ cybervisor submit "task" --start-from "Implement" --resume   # daemon
 - When all checks pass and the adapter supports continuation, the start stage begins as a continued attempt using the stored session id. A stderr line like `[Implement] Confirmed continued from session <id-prefix>…` confirms the resume.
 - When the adapter does not support continuation, or the metadata is absent, stale, or mismatched, Cybervisor logs the reason and starts a fresh attempt. Example fallback messages:
   - `[<stage>] Last session available but adapter '<name>' does not support continuation; starting fresh`
-  - `[<stage>] Last session not reusable (<reason>); starting fresh` where
-   `<reason>` is one of `no_session_metadata`, `workspace_mismatch`, `stage_mismatch`, `adapter_mismatch`, `empty_session_id`, `persisted_continuation_unavailable`, or `conversation_unavailable`.
+  - `[<stage>] Last session not reusable (<reason>); starting fresh` where `<reason>` is one of `no_session_metadata`, `workspace_mismatch`, `stage_mismatch`, `adapter_mismatch`, `empty_session_id`, `persisted_continuation_unavailable`, or `conversation_unavailable`.
 - When a fallback occurs, the persisted metadata is preserved. The new (fresh) session id is **not** written to `.cybervisor/latest-session.json`, so a later `--resume` attempt still points at the original persisted session. If the metadata file is missing entirely when `--resume` is requested, the fresh-fallback path does not create a new `latest-session.json`; the file is written only when a normal (non-resume) run starts a new session.
 - This feature is distinct from in-run retry continuation (which resumes within the same pipeline run's retry loop) and from WebSocket client `resume` (which replays daemon events for a running task).
 

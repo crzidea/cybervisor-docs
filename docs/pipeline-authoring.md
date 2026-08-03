@@ -412,6 +412,7 @@ stages:
 - If a declared path is a directory, all contents (files, symlinks, and subdirectories) are removed recursively, preserving only the directory itself. If a declared path is a regular file or symlink, it is removed directly.
 - Cleanup runs once after stage-input rendering and stage start, before the lifecycle before hook or stage executor.
 - If a path does not exist, it is skipped with a debug log. If deletion of an existing file fails, the attempt fails, both lifecycle hooks and the executor are skipped, and the normal retry policy applies.
+
 **Validation warnings:**
 - Config validation emits a warning when `.cybervisor/contracts/` (or any subpath) appears in `cleanup`, since that directory is managed by the existing contract artifact cleanup mechanism.
 
@@ -578,6 +579,7 @@ Completed Tasks:
 ```
 
 **Repair guidance for incomplete list:** If the agent lists only `Write unit tests`, evaluation returns a block with:
+
 > The 'Completed Tasks' field is missing the following configured task(s): Pass mypy --strict, Pass ruff check. Continue the required work before listing them.
 
 ### `read_only_paths` {#read_only_paths}

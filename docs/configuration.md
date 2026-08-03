@@ -318,7 +318,7 @@ Command stages do not resolve or record any of these settings. Omitting a model 
 | --- | --- |
 | Codex | Any normalized value; sent to the SDK turn. |
 | Claude | Any normalized value; sent through SDK options. |
-| OpenCode | Any normalized value; written as provider or agent `reasoningEffort`. |
+| OpenCode | Any normalized value; sent as the native message `variant` and mirrored as provider or agent `reasoningEffort` for compatibility. |
 | Antigravity | Any normalized value; sent through native `agy --effort`. |
 | Cursor | No effort channel; every explicit value is rejected before launch. |
 | Mock | Any normalized value; retained for propagation tests. |
