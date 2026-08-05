@@ -120,6 +120,8 @@ The `server` block controls the `cybervisor serve` daemon:
 
 Override on the command line: `cybervisor serve --host 0.0.0.0 --port 9000`.
 
+The optional authenticated workspace MCP listener is controlled by `serve` and `sandbox` command-line flags rather than the `server` configuration block. See [Authenticated Workspace MCP Server](/mcp-server.html) for token setup, MCP flags, network exposure, and client registration.
+
 ### Docker Sandbox Serve (`cybervisor sandbox`)
 
 Launch the daemon in an isolated Docker container with the current working directory mounted. See [Docker Sandbox Serve](testing.md#docker-sandbox-serve) for full documentation.

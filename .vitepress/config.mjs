@@ -13,6 +13,7 @@ export default defineConfig({
       { text: "Home", link: "/" },
       { text: "Getting Started", link: "/getting-started" },
       { text: "Configuration", link: "/configuration" },
+      { text: "Workspace MCP", link: "/mcp-server" },
       { text: "Runtime", items: [
         { text: "User Guide", link: "/runtime-user" },
         { text: "Developer Reference", link: "/runtime-internals" },
@@ -38,6 +39,7 @@ export default defineConfig({
           { text: "Configuration Reference", link: "/configuration" },
           { text: "Pipeline Authoring Guide", link: "/pipeline-authoring" },
           { text: "Runtime and Daemon (User Guide)", link: "/runtime-user" },
+          { text: "Authenticated Workspace MCP Server", link: "/mcp-server" },
           { text: "Updating cybervisor", link: "/updating" },
           { text: "Shell Completions", link: "/completions" },
           { text: "Troubleshooting", link: "/troubleshooting/index" },

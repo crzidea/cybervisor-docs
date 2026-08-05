@@ -49,6 +49,10 @@ When `harness: mock` is set in the active global config, the pipeline uses the b
 # Basic sandbox serve (defaults to 127.0.0.1:8765)
 cybervisor sandbox
 
+# Enable the authenticated workspace MCP endpoint (see mcp-server.md for token and network guidance)
+export CYBERVISOR_MCP_TOKEN="$(openssl rand -hex 32)"
+cybervisor sandbox --mcp --mcp-port 8766
+
 # Custom host/port
 cybervisor sandbox --host 0.0.0.0 --port 9000
 
@@ -87,6 +91,12 @@ cybervisor sandbox --group-add 123 --group-add users
 | `--mount MOUNT_SPEC` | None | Extra Docker volume mount; repeatable. Supports `HOST`, `HOST:CONTAINER`, and `HOST:CONTAINER:ro|rw` |
 | `--group-add GROUP` | None | Docker supplementary group to add inside the container; repeatable. Group names or numeric IDs are passed verbatim to Docker |
 | `--docker` | `false` | Mount the host Docker socket and add its supplementary group (Docker-in-Docker shorthand) |
+| `--mcp` | `false` | Enable the authenticated Streamable HTTP MCP listener; requires a non-empty `CYBERVISOR_MCP_TOKEN` |
+| `--mcp-host HOST` | Effective daemon `--host` | MCP listener bind address |
+| `--mcp-port PORT` | `8766` | MCP listener port; keep it distinct from the WebSocket daemon port |
+| `--mcp-allowed-origin ORIGIN` | Built-in local origins | Add a browser Origin to the MCP allowlist; repeat the option for multiple origins |
+
+MCP options are rejected unless `--mcp` is present. The sandbox forwards the MCP settings into its in-container `cybervisor serve` process, while the token is forwarded by environment-variable name rather than embedded in Docker command arguments. For the endpoint URL, bearer-authentication rules, and remote-client setup, see [Authenticated Workspace MCP Server](/mcp-server.html).
 
 ### Image Pull Behavior
 
