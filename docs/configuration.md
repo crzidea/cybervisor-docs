@@ -95,6 +95,9 @@ llm:
   api_key: your-api-key
   base_url: https://api.openai.com/v1 # Optional
   model: gpt-4o                     # Optional
+mcp:
+  client_id: cybervisor-workspace            # Optional; required with client_secret when MCP is enabled
+  client_secret: your-high-entropy-secret    # Optional; required with client_id when MCP is enabled
 harnesses:
   cursor:
     api_key: your-cursor-api-key    # Required when Cursor is selected
@@ -120,7 +123,7 @@ The `server` block controls the `cybervisor serve` daemon:
 
 Override on the command line: `cybervisor serve --host 0.0.0.0 --port 9000`.
 
-The optional authenticated workspace MCP listener is controlled by `serve` and `sandbox` command-line flags rather than the `server` configuration block. See [Authenticated Workspace MCP Server](/mcp-server.html) for token setup, MCP flags, network exposure, and client registration.
+The optional OAuth-protected workspace MCP listener is controlled by `serve` and `sandbox` command-line flags rather than the `server` configuration block. Its fixed confidential OAuth client comes from `mcp.client_id` and `mcp.client_secret` in `~/.cybervisor/config.yaml`. Unlike other active global settings, these values never come from workspace-local `.cybervisor/config.yaml`, environment variables, or command-line arguments, which keeps the command-execution credentials out of project configuration and process arguments. Remote deployments also set the canonical HTTPS resource and issuer origin with `--mcp-public-url`. See [OAuth-Protected Workspace MCP Server](/mcp-server.html) for OAuth discovery, automatic approval, proxy routing, and ChatGPT and Gemini Spark setup.
 
 ### Docker Sandbox Serve (`cybervisor sandbox`)
 
@@ -139,7 +142,7 @@ cybervisor sandbox --docker               # Docker-in-Docker (socket mount + gro
 
 ### Workspace-Local Config Override
 
-A `.cybervisor/config.yaml` file in the current working directory completely replaces `~/.cybervisor/config.yaml` when present. All settings, including `usage_recording` and `usage_reporting`, come from the workspace-local file. Pipeline configuration (`cybervisor.yaml`) has no CWD override.
+A `.cybervisor/config.yaml` file in the current working directory completely replaces `~/.cybervisor/config.yaml` for normal runtime settings when present. Settings including `usage_recording` and `usage_reporting` come from the workspace-local file. The MCP client ID and secret are the exception: they come only from the home config. Pipeline configuration (`cybervisor.yaml`) has no CWD override.
 
 This precedence is honored on every stage-attempt reload, not just at task start. The files are not merged: a workspace-local file without `hooks` supplies no global hook defaults even when the home file defines them. Editing or removing the workspace-local file mid-run takes effect at the next attempt. If the workspace-local file is removed during a run, the next reload resolves `~/.cybervisor/config.yaml` without operator action. See [Runtime and Daemon — Per-Stage Config Reload](runtime-user.md#per-stage-config-reload) for full reload behavior.
 
@@ -204,7 +207,7 @@ harnesses:
 
 When `.cybervisor/config.yaml` exists in the workspace, it replaces the home config, so the Cursor key must be present there. Environment variables and Cursor CLI login state are not fallback credential sources.
 
-Changing the default harness with `cybervisor use <harness>` updates only `harness`. It preserves `model_effort`, `stage_overrides`, the `harnesses` map (including `harnesses.cursor.api_key`), verifier settings, server settings, and usage settings.
+Changing the default harness with `cybervisor use <harness>` updates only `harness`. It preserves `model_effort`, `stage_overrides`, the `harnesses` map (including `harnesses.cursor.api_key`), `mcp.client_id`, `mcp.client_secret`, verifier settings, server settings, and usage settings.
 
 ## Scaffolding (`cybervisor init`)
 

@@ -4,7 +4,7 @@ Static documentation site for [cybervisor](https://github.com/crzidea/cybervisor
 
 ## Prerequisites
 
-- Node.js 18+ and npm
+- Node.js 22+ and npm
 - For local documentation edits, the `cybervisor` repository checked out at `../cybervisor/` (as in the cybervisor-workspace layout)
 
 ## Quick Start

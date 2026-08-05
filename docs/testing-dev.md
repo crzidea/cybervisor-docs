@@ -109,7 +109,7 @@ For the usual local development loop, use the dev sandbox script:
 scripts/dev-sandbox.sh
 ```
 
-It upgrades every locked dependency to the newest compatible release, reinstalls the host `cybervisor` CLI from the current checkout with upgraded dependencies, builds `cybervisor:local` from the refreshed lockfile, replaces the matching sandbox container for the current directory, and runs the sandbox attached on port `8766`. Review and commit the resulting `uv.lock` changes before publishing. Pass a different port as the first argument, for example `scripts/dev-sandbox.sh 9000`.
+It requires `mcp.client_id` and `mcp.client_secret` in `~/.cybervisor/config.yaml`, upgrades every locked dependency to the newest compatible release, reinstalls the host `cybervisor` CLI from the current checkout with upgraded dependencies, builds `cybervisor:local` from the refreshed lockfile, replaces the matching sandbox container for the current directory, and runs the sandbox attached with the daemon on port `8766` and the OAuth-protected MCP server on port `8767`. Review and commit the resulting `uv.lock` changes before publishing. Pass a different daemon port as the first argument; the MCP port defaults to the next port. Pass both ports to override them independently, for example `scripts/dev-sandbox.sh 9000 9100`. For ChatGPT or Gemini Spark, expose the MCP port through HTTPS and pass the exact external endpoint with `scripts/dev-sandbox.sh 9000 9100 --mcp-public-url https://workspace.example.com/mcp`, then enter the same configured client ID and secret in the client's manual OAuth fields.
 
 To run a generated-project smoke test, prepare an isolated workspace first:
 ```bash

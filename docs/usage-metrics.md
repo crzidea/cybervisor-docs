@@ -96,7 +96,7 @@ Token counts are never estimated:
 - completeness is tracked separately for every token field
 - a canonical total is unknown when any additive component is unknown; missing cache fields are never silently treated as zero
 
-The report shows summed task duration and summed stage-attempt duration. These measure different things and can legitimately differ. Summed task duration is not a wall-clock span when multiple tasks match.
+The report shows summed stage-attempt duration across all matching attempts.
 
 Daemon tasks begin recording when they acquire the serialized execution slot, so time spent waiting in the queue is excluded. Cancelling a queued task before execution creates no task record; cancelling after execution begins records a cancelled task and its attempted work.
 

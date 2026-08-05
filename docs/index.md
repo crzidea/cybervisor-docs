@@ -36,7 +36,7 @@ For the repository layout and package structure, see [Development](/development.
 | [Configuration Reference](/configuration.html) | `cybervisor.yaml`, `~/.cybervisor/config.yaml`, stage fields, CLI commands |
 | [Pipeline Authoring Guide](/pipeline-authoring.html) | Designing stages, contracts, routing, and stage prompts |
 | [Runtime and Daemon — User Guide](/runtime-user.html) | Daemon commands, client interaction, live stderr output, native session discovery, skill disable/restore, signals |
-| [Authenticated Workspace MCP Server](/mcp-server.html) | Optional bearer-authenticated Streamable HTTP access to workspace file and command tools |
+| [OAuth-Protected Workspace MCP Server](/mcp-server.html) | OAuth 2.1 Streamable HTTP access to workspace file and command tools for remote clients |
 | [Updating](/updating.html) | Install, upgrade, and migration workflows |
 | [Shell Completions](/completions.html) | Bash tab completion setup and comparison |
 | [Local Usage Metrics](/usage-metrics.html) | Private task history, filters, grouping, and token coverage |
