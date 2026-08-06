@@ -213,7 +213,41 @@ Yieldshell commands default to the workspace root, and a requested command worki
 - `400 Bad Request` or `415 Unsupported Media Type` from `/mcp` commonly means invalid MCP JSON or `Content-Type`.
 - `413 Request Entity Too Large` means the configured maximum request body size was exceeded.
 
-Authentication failures are rate-limited in structured logs written to `.cybervisor/logs/cybervisor.log.jsonl`. Every tool-call start event and its human-readable stderr message include the full MCP `params` object, including the tool name and all arguments; file contents, commands, and command environment values passed as tool arguments are therefore recorded and may contain sensitive data. OAuth tokens, client secrets, complete request headers, and tool output are not recorded by MCP request logging.
+Authentication failures are rate-limited in structured logs written to `.cybervisor/logs/cybervisor.log.jsonl`. Tool output, OAuth tokens, and client secrets are not recorded by request logging.
+
+## MCP tool-call logging
+
+Cybervisor records each MCP call in `.cybervisor/logs/cybervisor.log.jsonl` as a start event followed by either a completion or failure event. The start and outcome records share one full `correlation_id`, so you can match a request with its duration and any failure details.
+
+Follow the structured records while the server is running:
+
+```bash
+tail -f .cybervisor/logs/cybervisor.log.jsonl
+```
+
+Each record contains `timestamp` and `event`. Start records contain exactly one tool-name field, `tool`, plus `correlation_id` and a sanitized `arguments` object. Completion records contain `tool`, `correlation_id`, and `duration_ms`. Failure records contain those fields plus an `error` object with a short `category` and `message`. The legacy `tool_name`, `params`, and `success` fields are not emitted.
+
+The start record keeps the original argument names and insertion order, and the same sanitized arguments feed both JSONL and the human-readable stderr message. With normal (non-quiet) stderr logging, a call looks like this:
+
+```text
+INFO | tool call: file_read
+  path: notes.txt
+  start_line: 1
+  end_line: 100
+```
+
+Arguments stay independent: line and byte ranges are not merged into `range`, and timeout or output limits are not merged into `limits`. Flat scalar lists render as comma-separated values, and multiline values show the field name on its own line with the body indented below it. Successful calls do not produce a routine completion line on stderr; use the JSONL completion record for duration and correlation.
+
+Logging sanitizes recorded arguments without changing the MCP request or its result:
+
+- Whole-file `content`, shell `stdin`, and interactive `input` values become placeholders such as `<omitted, 512 bytes>` on both stderr and JSONL.
+- `env` and `environment` mappings become placeholders such as `<omitted, 3 variables>`; their values are not recorded.
+- Credential-named fields, including headers, authorization, access or refresh tokens, API keys, passwords, secrets, and cookies, become `<redacted>`, including when they occur in bounded nested mappings.
+- Unsupported or excessively deep values become an opaque `<omitted>` placeholder instead of being serialized without a bound.
+- `file_edit` `old_text` and `new_text` remain visible in full by design, so do not put credentials in edit text.
+- Other scalar fields, including `command` and `path`, remain visible; logging does not inspect secret-like text embedded in those strings.
+
+The logger catches failures in sanitization, rendering, and log writing so an observability problem cannot change, stall, or replace the MCP tool call. `--quiet` suppresses the human-readable stderr block but does not disable the structured JSONL records.
 
 ## Troubleshooting checklist
 

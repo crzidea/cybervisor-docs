@@ -110,6 +110,22 @@ All adapters emit canonical log events through `stream_logging`. Each stderr lin
 
 Protocol adapters and in-process SDK adapters emit canonical log events. Adapter-local `tool_mapping.py` modules define how each agent's tool kinds, titles, content types, and argument field names select shared formatters before events reach `stream_logging`.
 
+The workspace MCP server builds the same `CanonicalLogEvent(kind="tool_call")` used by local harnesses and sends it through `render_canonical_event`; MCP calls therefore use the same generic field formatter without an MCP formatter registry. Argument names and insertion order are preserved, each parameter remains independent, and no synthetic fields such as `range`, `limits`, or content summaries are created. A shared sanitizer feeds both stderr and MCP JSONL, retaining safe scalar values, replacing bulky or credential-bearing values with placeholders, and bounding nested structures. `file_edit` `old_text` and `new_text` remain intentionally visible for review. Correlation IDs, durations, and bounded failure details are recorded in JSONL rather than emitted as routine completion lines on stderr.
+
+The flattened MCP JSONL contract uses `mcp_tool_call_start` with `tool`, `correlation_id`, and sanitized `arguments`; `mcp_tool_call_complete` with `tool`, `correlation_id`, and `duration_ms`; and `mcp_tool_call_failed` with those fields plus an `error.category` and bounded `error.message`. Every record also carries `timestamp` and `event`; the removed `tool_name`, `params`, and `success` fields must not be reintroduced. Logging is best effort: sanitizer, renderer, JSONL, and stderr failures are reduced to debug logging and never propagate into MCP execution.
+
+```mermaid
+flowchart LR
+    Call[MCP tool call] --> Sanitize[Shared argument sanitizer]
+    Sanitize --> Event[Canonical tool_call event]
+    Event --> Render[Universal renderer]
+    Render --> Stderr[Human-readable stderr]
+    Sanitize --> JSONL[Structured MCP JSONL start record]
+    Call --> Outcome{Outcome}
+    Outcome -->|returned| Complete[JSONL completion record]
+    Outcome -->|raised| Failed[JSONL failure record]
+```
+
 Key behaviors:
 - Rendered `tool call:` lines keep the original agent-visible tool name (for example `run_shell_command`) while using the mapped formatter name (for example `Bash`) only to summarize arguments.
 - Adapters must not print final tool lines themselves or add agent-specific branches in the shared formatters; extend the owning adapter's mapping module when a new tool payload shape appears.
