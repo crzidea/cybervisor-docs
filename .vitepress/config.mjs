@@ -1,6 +1,7 @@
 import { defineConfig } from "vitepress";
+import { withMermaid } from "vitepress-plugin-mermaid";
 
-export default defineConfig({
+export default withMermaid(defineConfig({
   title: "Cybervisor",
   description: "Autonomous AI development pipeline supervisor",
   srcDir: "docs",
@@ -84,4 +85,4 @@ export default defineConfig({
       text: "Edit this page on GitHub",
     },
   },
-});
+}));

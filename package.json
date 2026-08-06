@@ -12,7 +12,9 @@
     "wrangler:dev": "wrangler dev"
   },
   "devDependencies": {
+    "mermaid": "^11.16.1",
     "vitepress": "^1.6.0",
+    "vitepress-plugin-mermaid": "^2.0.17",
     "wrangler": "^4.0.0"
   },
   "overrides": {
